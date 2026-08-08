@@ -197,6 +197,7 @@
 </head>
 <body>
 
+<div class="note-banner" id="connectionBanner" style="display:none;">🟢 نسخة مستقلة (index.html) — بتاخد بياناتها لحظيًا من رابط الـ Apps Script عن طريق fetch</div>
 
 <div class="topbar">
   <div class="logo-wrap">
@@ -504,13 +505,22 @@ function val(id) { const el = document.getElementById(id); return el ? el.value 
 function setConnected(ok, message) {
   const pill = document.getElementById('statusPill');
   const banner = document.getElementById('connectionBanner');
-  document.getElementById('systemStatus').textContent = message || (ok ? 'البيانات محدثة' : 'خطأ فى الاتصال');
-  pill.classList.toggle('error', !ok);
+  const statusEl = document.getElementById('systemStatus');
+  if (statusEl) statusEl.textContent = message || (ok ? 'البيانات محدثة' : 'خطأ فى الاتصال');
+  if (pill) pill.classList.toggle('error', !ok);
+
+  // Defensive: only touch the banner if it still exists in the page.
+  // (If someone deletes the banner <div> from the HTML, the app must
+  // keep working — connection errors just won't have a visible banner.)
+  if (!banner) return;
+
   if (!ok) {
+    banner.style.display = '';
     banner.className = 'note-banner error';
     banner.textContent = '🔴 ' + (message || 'تعذّر الاتصال') + ' — اضغطي هنا لفتح إعدادات رابط الـ API';
     banner.onclick = openSettings;
   } else {
+    banner.style.display = 'none';
     banner.className = 'note-banner';
     banner.textContent = '🟢 نسخة مستقلة (index.html) — بتاخد بياناتها لحظيًا من رابط الـ Apps Script عن طريق fetch';
     banner.onclick = null;
