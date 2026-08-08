@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>نظام متابعة Fleet Support — ARRIVE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#F3F6FA; --surface:#FFFFFF; --surface-soft:#EEF2F7; --border:#E2E8F1;
+    --text:#152238; --text-muted:#697A91;
+    --primary:#1D4E89; --primary-dark:#123A68; --primary-light:#E7F0FB; --accent:#2E86DE;
+    --success:#1FA971; --success-bg:#E4F7EE;
+    --warning:#E1962E; --warning-bg:#FCF1DE;
+    --danger:#E5484D; --danger-bg:#FCE8E9;
+    --shadow: 0 1px 2px rgba(21,34,56,0.04), 0 6px 20px rgba(21,34,56,0.06);
+    --radius: 14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Tajawal',sans-serif;padding-bottom:80px;}
+  h1,h2,h3{font-family:'Tajawal',sans-serif;font-weight:800;}
+  .note-banner{background:var(--success-bg);border-bottom:1px solid #BFE7D4;color:var(--success);font-size:12.5px;text-align:center;padding:8px 12px;font-weight:700;}
+  .note-banner.warn{background:#FFF7E6;border-bottom:1px solid #F0DDA6;color:#7A5A12;}
+  .note-banner.error{background:var(--danger-bg);border-bottom:1px solid #F3B9BB;color:var(--danger);cursor:pointer;}
+
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;
+    background:linear-gradient(180deg,#FFFFFF 0%, #FBFCFE 100%);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:10px;}
+  .logo-wrap{display:flex;align-items:center;gap:10px;}
+  .logo-mark{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,var(--primary),var(--accent));
+    display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:14px;box-shadow:var(--shadow);}
+  .logo-text{font-weight:800;font-size:16px;color:var(--primary-dark);}
+  .logo-sub{font-size:10.5px;color:var(--text-muted);font-weight:700;}
+  .center-title{text-align:center;}
+  .center-title h1{font-size:19px;margin:0;}
+  .center-title .sub{font-size:12px;color:var(--text-muted);font-weight:600;}
+  .topbar-right{display:flex;align-items:center;gap:8px;}
+  .status-pill{display:flex;align-items:center;gap:7px;background:var(--success-bg);color:var(--success);
+    padding:7px 14px;border-radius:20px;font-size:12.5px;font-weight:800;}
+  .status-pill.error{background:var(--danger-bg);color:var(--danger);}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px rgba(31,169,113,.18);}
+  .status-pill.error .status-dot{background:var(--danger);box-shadow:0 0 0 3px rgba(229,72,77,.18);}
+  .settings-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--surface);
+    cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;}
+
+  .control-row{display:flex;align-items:center;justify-content:space-between;padding:12px 28px;
+    background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:10px;}
+  .refresh-btn{display:flex;align-items:center;gap:8px;background:var(--primary);color:#fff;border:none;
+    padding:9px 18px;border-radius:10px;font-weight:800;font-size:13px;cursor:pointer;box-shadow:var(--shadow);font-family:'Tajawal',sans-serif;}
+  .refresh-btn:hover{background:var(--primary-dark);}
+  .refresh-btn:disabled{opacity:.6;cursor:default;}
+  .refresh-btn.spinning .spin{display:inline-block;animation:spin .6s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .timestamps{display:flex;gap:22px;flex-wrap:wrap;}
+  .ts-item{font-size:12px;color:var(--text-muted);font-weight:600;}
+  .ts-item b{color:var(--text);font-weight:800;}
+
+  .filter-section{background:var(--surface-soft);border-bottom:1px solid var(--border);padding:14px 28px;}
+  .filter-section .filter-title{font-size:11.5px;color:var(--text-muted);font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+  .filter-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;}
+  .filter-group{display:flex;flex-direction:column;}
+  .filter-group.hidden{display:none;}
+  .filter-group label{font-size:10.5px;color:var(--text-muted);font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:4px;}
+  .filter-group select, .filter-group input{
+    background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:7px 10px;
+    font-size:12px;font-family:'Tajawal',sans-serif;font-weight:700;color:var(--text);cursor:pointer;
+  }
+
+  main{padding:24px 28px 40px;max-width:1400px;margin:0 auto;}
+  .page{display:none;animation:fadeIn .25s ease;}
+  .page.active{display:block;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+  .page-title{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px;}
+  .page-title h2{font-size:20px;margin:0;}
+  .page-title .desc{font-size:12.5px;color:var(--text-muted);font-weight:600;}
+  .section-heading{font-size:14.5px;font-weight:800;margin:26px 0 12px;display:flex;align-items:center;gap:8px;color:var(--primary-dark);}
+  .section-heading:first-child{margin-top:0;}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;}
+  .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;
+    box-shadow:var(--shadow);border-right:4px solid var(--accent-bar,var(--primary));}
+  .kpi-icon{font-size:19px;margin-bottom:8px;display:inline-block;}
+  .kpi-value{font-size:25px;font-weight:900;line-height:1;}
+  .kpi-label{font-size:12.5px;color:var(--text-muted);font-weight:700;margin-top:6px;}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);}
+  .card h3{font-size:13.5px;margin:0 0 12px;display:flex;align-items:center;gap:7px;}
+  .card .chart-wrap{position:relative;height:220px;}
+  .card .chart-wrap.small{height:180px;}
+  .empty-note{font-size:12px;color:var(--text-muted);text-align:center;padding:30px 10px;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  thead th{text-align:right;font-size:11px;color:var(--text-muted);font-weight:800;padding:10px 12px;border-bottom:2px solid var(--border);background:var(--surface-soft);}
+  tbody td{padding:10px 12px;border-bottom:1px solid var(--border);}
+  tbody tr:hover{background:var(--primary-light);}
+  .pill{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:800;display:inline-block;}
+  .pill-open{background:var(--danger-bg);color:var(--danger);}
+  .pill-followup{background:var(--warning-bg);color:var(--warning);}
+  .pill-solved{background:var(--success-bg);color:var(--success);}
+  .rank-cell{font-weight:900;color:var(--primary);}
+  .res-bar{width:80px;height:6px;background:var(--surface-soft);border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle;margin-left:6px;}
+  .res-bar span{display:block;height:100%;background:var(--success);}
+
+  .table-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-bottom:16px;}
+  .table-card .table-head{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:10px;}
+  .table-scroll{overflow-x:auto;}
+  .search-box{display:flex;align-items:center;gap:8px;background:var(--surface-soft);border:1px solid var(--border);border-radius:9px;padding:7px 12px;min-width:260px;}
+  .search-box input{border:none;background:transparent;outline:none;font-size:12.5px;width:100%;font-family:'Tajawal',sans-serif;}
+
+  .stat-strip{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+  .stat-card{background:linear-gradient(135deg,var(--primary-dark),var(--primary));color:#fff;border-radius:var(--radius);
+    padding:16px 18px;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:space-between;}
+  .stat-card .label{font-size:11.5px;opacity:.9;font-weight:700;}
+  .stat-card .value{font-size:20px;font-weight:900;margin-top:3px;}
+  .stat-card .icon{font-size:26px;}
+
+  .compare-bar{display:flex;align-items:flex-end;gap:14px;background:var(--surface);border:1px solid var(--border);
+    border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);margin-bottom:16px;flex-wrap:wrap;}
+  .compare-bar .filter-group{min-width:150px;}
+  .compare-bar .vs{font-weight:900;color:var(--text-muted);padding-bottom:8px;}
+  .compare-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+  .compare-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);}
+  .compare-card .q{font-size:11px;color:var(--text-muted);font-weight:700;margin-bottom:6px;}
+  .compare-card .a{font-size:17px;font-weight:900;color:var(--primary-dark);}
+  .badge-status{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:800;display:inline-flex;align-items:center;gap:4px;}
+  .badge-up{background:var(--success-bg);color:var(--success);}
+  .badge-down{background:var(--danger-bg);color:var(--danger);}
+  .badge-flat{background:var(--surface-soft);color:var(--text-muted);}
+
+  .filters-actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+  .action-btn{display:flex;align-items:center;gap:7px;border:1px solid var(--border);background:var(--surface-soft);
+    padding:9px 16px;border-radius:9px;font-weight:800;font-size:12.5px;cursor:pointer;color:var(--text);font-family:'Tajawal',sans-serif;}
+  .action-btn.primary{background:var(--primary);color:#fff;border-color:var(--primary);}
+
+  .answers-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+  .answer-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);}
+  .answer-card .q{font-size:11px;color:var(--text-muted);font-weight:700;margin-bottom:6px;}
+  .answer-card .a{font-size:17px;font-weight:900;color:var(--primary-dark);}
+
+  .hero{background:linear-gradient(135deg,var(--primary-dark),var(--primary) 60%, var(--accent));
+    border-radius:18px;padding:38px 34px;color:#fff;box-shadow:var(--shadow);margin-bottom:22px;
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:20px;}
+  .hero-right{max-width:560px;}
+  .hero h1{font-size:26px;margin:0 0 8px;}
+  .hero p{font-size:13.5px;opacity:.9;margin:0 0 16px;line-height:1.8;font-weight:500;}
+  .hero-stats{display:flex;gap:24px;flex-wrap:wrap;}
+  .hero-stat b{display:block;font-size:20px;font-weight:900;}
+  .hero-stat span{font-size:11px;opacity:.85;font-weight:600;}
+  .hero-badge{background:rgba(255,255,255,.15);padding:8px 16px;border-radius:20px;font-size:12.5px;font-weight:800;display:inline-flex;align-items:center;gap:7px;margin-bottom:14px;}
+
+  .menu-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+  .menu-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);
+    cursor:pointer;transition:transform .15s ease, box-shadow .15s ease;}
+  .menu-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(21,34,56,.1);}
+  .menu-card .m-icon{width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:12px;}
+  .menu-card h4{margin:0 0 5px;font-size:14.5px;}
+  .menu-card p{margin:0 0 14px;font-size:12px;color:var(--text-muted);line-height:1.7;}
+  .menu-card .go{font-size:12px;font-weight:800;color:var(--primary);}
+
+  .sheet-tabs{position:fixed;bottom:0;right:0;left:0;display:flex;align-items:flex-end;gap:2px;
+    background:#EAEFF5;border-top:1px solid var(--border);padding:10px 20px 0;
+    box-shadow:0 -6px 18px rgba(21,34,56,.06);z-index:20;overflow-x:auto;}
+  .sheet-tab{display:flex;align-items:center;gap:8px;background:#DCE3EC;color:var(--text-muted);
+    padding:10px 18px;border-radius:10px 10px 0 0;font-size:12.5px;font-weight:800;cursor:pointer;white-space:nowrap;
+    border:1px solid transparent;border-bottom:none;}
+  .sheet-tab .dot{width:7px;height:7px;border-radius:50%;background:var(--text-muted);}
+  .sheet-tab:hover{background:#CFD9E6;}
+  .sheet-tab.active{background:var(--surface);color:var(--primary-dark);border-color:var(--border);box-shadow:0 -2px 8px rgba(21,34,56,.05);}
+  .sheet-tab.active .dot{background:var(--primary);}
+  .sheet-tab:nth-child(1) .dot{background:#8B5CF6;}
+  .sheet-tab:nth-child(2) .dot{background:#2E86DE;}
+  .sheet-tab:nth-child(3) .dot{background:#1FA971;}
+  .sheet-tab:nth-child(4) .dot{background:#E1962E;}
+  .sheet-tab:nth-child(5) .dot{background:#E5484D;}
+  .sheet-tab:nth-child(6) .dot{background:#1D4E89;}
+
+  .footer-signature{text-align:center;font-size:10.5px;color:var(--text-muted);padding:14px 0 6px;font-weight:700;}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(21,34,56,.5);display:none;align-items:center;justify-content:center;z-index:100;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:var(--radius);padding:22px;width:min(480px,90vw);box-shadow:var(--shadow);}
+  .modal-box h3{margin:0 0 6px;font-size:15px;}
+  .modal-box p{font-size:12px;color:var(--text-muted);margin:0 0 14px;line-height:1.7;}
+  .modal-box input{width:100%;border:1px solid var(--border);border-radius:9px;padding:9px 12px;font-size:12.5px;font-family:'Tajawal',sans-serif;margin-bottom:14px;}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-start;}
+
+  @media (max-width:1100px){
+    .filter-grid{grid-template-columns:repeat(3,1fr);}
+    .kpi-grid{grid-template-columns:repeat(2,1fr);}
+    .grid-2,.grid-3,.menu-grid,.stat-strip,.answers-grid,.compare-cards{grid-template-columns:1fr 1fr;}
+  }
+</style>
+</head>
+<body>
+
+<div class="note-banner" id="connectionBanner">🟢 نسخة مستقلة (index.html) — بتاخد بياناتها لحظيًا من رابط الـ Apps Script عن طريق fetch</div>
+
+<div class="topbar">
+  <div class="logo-wrap">
+    <div class="logo-mark">AR</div>
+    <div><div class="logo-text">ARRIVE</div><div class="logo-sub">Logistics</div></div>
+  </div>
+  <div class="center-title">
+    <h1>نظام متابعة Fleet Support</h1>
+    <div class="sub">ARRIVE Fleet Support Monitoring</div>
+  </div>
+  <div class="topbar-right">
+    <div class="status-pill" id="statusPill"><span class="status-dot"></span> حالة النظام: <span id="systemStatus">جاري التحميل...</span></div>
+    <button class="settings-btn" id="settingsBtn" title="إعدادات رابط الـ API">⚙️</button>
+  </div>
+</div>
+
+<div class="control-row">
+  <button class="refresh-btn" id="refreshBtn"><span class="spin">🔄</span> تحديث البيانات</button>
+  <div class="timestamps">
+    <div class="ts-item">🕒 آخر تحديث للوحة: <b id="tsDashboard">—</b></div>
+    <div class="ts-item">🕒 عدد صفوف بتاريخ غير صالح: <b id="tsInvalidDates">—</b></div>
+  </div>
+</div>
+
+<div class="filter-section">
+  <div class="filter-title">🎛️ فلاتر الصفحة الحالية — أي تغيير هنا يحدّث كل الكروت والرسومات والجداول تلقائيًا</div>
+  <div class="filter-grid">
+    <div class="filter-group"><label>📅 من تاريخ</label><input type="date" id="filterDateFrom"></div>
+    <div class="filter-group"><label>📅 إلى تاريخ</label><input type="date" id="filterDateTo"></div>
+    <div class="filter-group"><label>🏢 الفرع</label><select id="filterBranch"><option value="">كل الفروع</option></select></div>
+    <div class="filter-group"><label>👩 اسم الموظفة</label><select id="filterEmployee"><option value="">الكل</option></select></div>
+    <div class="filter-group"><label>📦 Account</label><select id="filterAccount"><option value="">كل الـ Accounts</option></select></div>
+    <div class="filter-group" id="driverFilterGroup"><label>🚚 اسم المندوب</label><select id="filterDriver"><option value="">الكل</option></select></div>
+    <div class="filter-group"><label>⚠️ نوع المشكلة</label><select id="filterProblemType"><option value="">الكل</option></select></div>
+    <div class="filter-group"><label>📌 حالة الشحنة</label>
+      <select id="filterStatus">
+        <option value="">الكل</option>
+        <option value="SOLVED">تم الحل</option>
+        <option value="FOLLOWUP">قيد المتابعة</option>
+        <option value="OPEN">لم يتم الحل</option>
+      </select>
+    </div>
+    <div class="filter-group"><button class="action-btn primary" id="applyFiltersBtn" style="margin-top:16px;">🔎 تطبيق الفلاتر</button></div>
+    <div class="filter-group"><button class="action-btn" id="clearFiltersBtn" style="margin-top:16px;">✖️ مسح الفلاتر</button></div>
+  </div>
+</div>
+
+<main>
+
+  <section class="page active" id="page-home">
+    <div class="hero">
+      <div class="hero-right">
+        <div class="hero-badge">🟢 النظام يعمل بكفاءة</div>
+        <h1>أهلاً بيكِ في نظام متابعة Fleet Support</h1>
+        <p>تابعي كل مشاكل الشحن، أداء الفروع، وأداء الموظفين — من مكان واحد متحدث لحظيًا من Master Data.</p>
+        <div class="hero-stats">
+          <div class="hero-stat"><b id="heroTotal">—</b><span>إجمالى المشاكل</span></div>
+          <div class="hero-stat"><b id="heroResolutionRate">—</b><span>نسبة الحل</span></div>
+          <div class="hero-stat"><b id="heroBranchCount">—</b><span>فرع نشط</span></div>
+          <div class="hero-stat"><b id="heroEmployeeCount">—</b><span>موظف نشط</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="menu-grid">
+      <div class="menu-card" data-goto="page-dashboard">
+        <div class="m-icon" style="background:var(--primary-light);color:var(--primary);">📊</div>
+        <h4>Dashboard</h4><p>نظرة تنفيذية شاملة على كل الـ KPIs والرسومات البيانية.</p><div class="go">فتح الصفحة ←</div>
+      </div>
+      <div class="menu-card" data-goto="page-branches">
+        <div class="m-icon" style="background:var(--success-bg);color:var(--success);">🏢</div>
+        <h4>أداء الفروع</h4><p>ترتيب الفروع ونسبة الحل، ومقارنة الأداء بين شهرين.</p><div class="go">فتح الصفحة ←</div>
+      </div>
+      <div class="menu-card" data-goto="page-employees">
+        <div class="m-icon" style="background:var(--warning-bg);color:var(--warning);">👩</div>
+        <h4>أداء الموظفين</h4><p>ترتيب الموظفين ونسبة الإنجاز، ومقارنة الأداء بين شهرين.</p><div class="go">فتح الصفحة ←</div>
+      </div>
+      <div class="menu-card" data-goto="page-open">
+        <div class="m-icon" style="background:var(--danger-bg);color:var(--danger);">🔴</div>
+        <h4>الحالات المفتوحة</h4><p>كل الحالات المفتوحة وقيد المتابعة، مع بحث فوري.</p><div class="go">فتح الصفحة ←</div>
+      </div>
+      <div class="menu-card" data-goto="page-reports">
+        <div class="m-icon" style="background:var(--primary-light);color:var(--primary);">📄</div>
+        <h4>التقارير</h4><p>فلترة بالتاريخ والوقت، وتصدير Excel / PDF / طباعة.</p><div class="go">فتح الصفحة ←</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="page-dashboard">
+    <div class="page-title"><h2>Dashboard</h2><div class="desc">نظرة عامة على كل مؤشرات الأداء — تتحدث تلقائيًا حسب الفلاتر</div></div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card" style="--accent-bar:#2E86DE"><span class="kpi-icon">📦</span><div class="kpi-value" id="kpiTotal">—</div><div class="kpi-label">إجمالى المشاكل</div></div>
+      <div class="kpi-card" style="--accent-bar:#1FA971"><span class="kpi-icon">✅</span><div class="kpi-value" id="kpiSolved">—</div><div class="kpi-label">تم الحل</div></div>
+      <div class="kpi-card" style="--accent-bar:#E1962E"><span class="kpi-icon">🟡</span><div class="kpi-value" id="kpiFollowup">—</div><div class="kpi-label">قيد المتابعة</div></div>
+      <div class="kpi-card" style="--accent-bar:#E5484D"><span class="kpi-icon">🔴</span><div class="kpi-value" id="kpiOpen">—</div><div class="kpi-label">لم يتم الحل</div></div>
+      <div class="kpi-card" style="--accent-bar:#2E86DE"><span class="kpi-icon">📈</span><div class="kpi-value" id="kpiResolutionRate">—</div><div class="kpi-label">نسبة الحل</div></div>
+      <div class="kpi-card" style="--accent-bar:#8B5CF6"><span class="kpi-icon">🏢</span><div class="kpi-value" id="kpiBranchCount">—</div><div class="kpi-label">عدد الفروع</div></div>
+      <div class="kpi-card" style="--accent-bar:#8B5CF6"><span class="kpi-icon">👩</span><div class="kpi-value" id="kpiEmployeeCount">—</div><div class="kpi-label">عدد الموظفات</div></div>
+      <div class="kpi-card" style="--accent-bar:#2E86DE"><span class="kpi-icon">📦</span><div class="kpi-value" id="kpiAccountCount">—</div><div class="kpi-label">عدد Accounts</div></div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:16px;">
+      <div class="card"><h3>🏢 عدد المشاكل حسب الفرع</h3><div class="chart-wrap"><canvas id="chBranch"></canvas></div></div>
+      <div class="card"><h3>👤 عدد المشاكل حسب الموظفة</h3><div class="chart-wrap"><canvas id="chEmployee"></canvas></div></div>
+    </div>
+    <div class="grid-3" style="margin-bottom:16px;">
+      <div class="card"><h3>📦 عدد المشاكل حسب Account</h3><div class="chart-wrap small"><canvas id="chAccount"></canvas></div></div>
+      <div class="card"><h3>🧩 أكثر أنواع المشاكل</h3><div class="chart-wrap small"><canvas id="chType"></canvas></div></div>
+      <div class="card"><h3>⚖️ تم الحل / قيد المتابعة / لم يتم الحل</h3><div class="chart-wrap small"><canvas id="chSolvedOpen"></canvas></div></div>
+    </div>
+    <div class="card"><h3>📈 الاتجاه اليومى للمشاكل</h3><div class="chart-wrap"><canvas id="chDaily"></canvas></div></div>
+  </section>
+
+  <section class="page" id="page-branches">
+    <div class="page-title"><h2>أداء الفروع</h2><div class="desc">أداء كل فرع، وإمكانية مقارنة الأداء بين شهرين</div></div>
+
+    <div class="section-heading">📋 القسم الأول — أداء الفروع الحالي</div>
+    <div class="table-card">
+      <div class="table-head"><strong style="font-size:13px;">ترتيب الفروع</strong><span style="font-size:11.5px;color:var(--text-muted);" id="branchCountLabel">0 فرع</span></div>
+      <div class="table-scroll">
+        <table><thead><tr><th>#</th><th>الفرع</th><th>عدد المشاكل</th><th>تم الحل</th><th>قيد المتابعة</th><th>لم يتم الحل</th><th>نسبة الحل</th></tr></thead>
+        <tbody id="branchTableBody"></tbody></table>
+      </div>
+    </div>
+    <div class="card"><h3>📊 رسم بياني — نسبة الحل لكل فرع</h3><div class="chart-wrap"><canvas id="chBranchRes"></canvas></div></div>
+
+    <div class="section-heading">🔁 القسم الثانى — مقارنة الأداء بين شهرين</div>
+    <div class="compare-bar">
+      <div class="filter-group"><label>الشهر الأول</label><select id="branchM1"></select></div>
+      <div class="vs">مقابل</div>
+      <div class="filter-group"><label>الشهر الثانى</label><select id="branchM2"></select></div>
+      <button class="action-btn primary" id="branchCompareBtn" style="margin-inline-start:auto;">📊 مقارنة</button>
+    </div>
+    <div class="compare-cards">
+      <div class="compare-card"><div class="q">عدد المشاكل — الشهر الأول</div><div class="a" id="branchCompM1Total">—</div></div>
+      <div class="compare-card"><div class="q">عدد المشاكل — الشهر الثانى</div><div class="a" id="branchCompM2Total">—</div></div>
+      <div class="compare-card"><div class="q">الفرق</div><div class="a" id="branchCompDiff">—</div></div>
+      <div class="compare-card"><div class="q">نسبة تغيير نسبة الحل</div><div class="a" id="branchCompChangePct">—</div></div>
+    </div>
+    <div class="card"><h3>📊 مقارنة عدد المشاكل لكل فرع بين الشهرين</h3><div class="chart-wrap"><canvas id="chBranchCompare"></canvas></div></div>
+  </section>
+
+  <section class="page" id="page-employees">
+    <div class="page-title"><h2>أداء الموظفين</h2><div class="desc">أداء كل موظفة، وإمكانية مقارنة الأداء بين شهرين</div></div>
+
+    <div class="section-heading">📋 القسم الأول — الأداء الحالي</div>
+    <div class="stat-strip">
+      <div class="stat-card"><div><div class="label">الأعلى نشاطًا</div><div class="value" id="topEmployeeLabel">—</div></div><div class="icon">🥇</div></div>
+      <div class="stat-card"><div><div class="label">متوسط الحالات لكل موظفة</div><div class="value" id="avgPerEmployeeLabel">—</div></div><div class="icon">📊</div></div>
+    </div>
+    <div class="table-card">
+      <div class="table-head"><strong style="font-size:13px;">ترتيب الموظفين</strong><span style="font-size:11.5px;color:var(--text-muted);" id="employeeCountLabel">0 موظفة</span></div>
+      <div class="table-scroll">
+        <table><thead><tr><th>#</th><th>الموظفة</th><th>عدد الحالات</th><th>تم الحل</th><th>قيد المتابعة</th><th>لم يتم الحل</th><th>نسبة الحل</th></tr></thead>
+        <tbody id="employeeTableBody"></tbody></table>
+      </div>
+    </div>
+    <div class="card"><h3>⚙️ مقارنة عدد الحالات بين الموظفات</h3><div class="chart-wrap"><canvas id="chEmployeeWorkload"></canvas></div></div>
+
+    <div class="section-heading">🔁 القسم الثانى — مقارنة أداء الموظفين بين شهرين</div>
+    <div class="compare-bar">
+      <div class="filter-group"><label>الشهر الأول</label><select id="employeeM1"></select></div>
+      <div class="vs">مقابل</div>
+      <div class="filter-group"><label>الشهر الثانى</label><select id="employeeM2"></select></div>
+      <button class="action-btn primary" id="employeeCompareBtn" style="margin-inline-start:auto;">📊 مقارنة</button>
+    </div>
+    <div class="table-card">
+      <div class="table-head"><strong style="font-size:13px;">مقارنة الموظفين بين الشهرين</strong></div>
+      <div class="table-scroll">
+        <table><thead><tr><th>الموظفة</th><th>حالات الشهر الأول</th><th>حالات تم حلها (١)</th><th>حالات الشهر الثانى</th><th>حالات تم حلها (٢)</th><th>الفرق</th><th>نسبة تغيير نسبة الحل</th><th>الحالة</th></tr></thead>
+        <tbody id="employeeCompareBody"></tbody></table>
+      </div>
+    </div>
+    <div class="card"><h3>📊 رسم بياني للمقارنة</h3><div class="chart-wrap"><canvas id="chEmployeeCompare"></canvas></div></div>
+  </section>
+
+  <section class="page" id="page-open">
+    <div class="page-title"><h2>الحالات المفتوحة</h2><div class="desc">الحالات المفتوحة وقيد المتابعة فقط — تتحدث لحظيًا من Master Data</div></div>
+    <div class="table-card" style="margin-bottom:0;">
+      <div class="table-head">
+        <strong style="font-size:13px;">الحالات النشطة (<span id="liveCount">0</span>)</strong>
+        <div class="search-box">🔍 <input id="liveSearch" placeholder="ابحثي بكود البوليصة، Account، المندوب، أو الموظفة..."></div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>التاريخ</th><th>كود البوليصة</th><th>Account</th><th>اسم المندوب</th><th>الفرع</th><th>نوع المشكلة</th><th>حالة الشحنة</th><th>اسم الموظفة</th><th>آخر تحديث</th><th>ملاحظات</th></tr></thead>
+          <tbody id="liveTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="page-reports">
+    <div class="page-title"><h2>التقارير</h2><div class="desc">تُبنى التقارير على الفلاتر أعلى الصفحة — اختاري الفترة ثم اعرضي الإحصائية</div></div>
+
+    <div class="filters-actions">
+      <button class="action-btn primary" id="showStatsBtn">📊 عرض الإحصائية</button>
+      <button class="action-btn" id="exportExcelBtn">📥 تصدير Excel (CSV)</button>
+      <button class="action-btn" id="printBtn">🖨️ طباعة</button>
+    </div>
+
+    <div class="answers-grid">
+      <div class="answer-card"><div class="q">إجمالى المشاكل فى الفترة</div><div class="a" id="reportTotal">—</div></div>
+      <div class="answer-card"><div class="q">تم الحل</div><div class="a" id="reportSolved" style="color:var(--success)">—</div></div>
+      <div class="answer-card"><div class="q">لم يتم الحل</div><div class="a" id="reportOpen" style="color:var(--danger)">—</div></div>
+      <div class="answer-card"><div class="q">قيد المتابعة</div><div class="a" id="reportFollowup" style="color:var(--warning)">—</div></div>
+      <div class="answer-card"><div class="q">أكثر فرع به مشاكل</div><div class="a" id="reportTopBranch" style="font-size:14px;">—</div></div>
+      <div class="answer-card"><div class="q">أكثر Account به مشاكل</div><div class="a" id="reportTopAccount" style="font-size:14px;">—</div></div>
+      <div class="answer-card"><div class="q">أكثر نوع مشكلة</div><div class="a" id="reportTopProblemType" style="font-size:14px;">—</div></div>
+      <div class="answer-card"><div class="q">عدد الحالات لكل موظفة (متوسط)</div><div class="a" id="reportAvgPerEmployee">—</div></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card"><h3>🏢 عدد المشاكل حسب الفرع</h3><div class="chart-wrap"><canvas id="chReportBranch"></canvas></div></div>
+      <div class="card"><h3>👤 عدد الحالات لكل موظفة</h3><div class="chart-wrap"><canvas id="chReportEmployee"></canvas></div></div>
+    </div>
+  </section>
+
+</main>
+
+<div class="footer-signature">made by hager shabaan</div>
+
+<div class="sheet-tabs" id="sheetTabs">
+  <div class="sheet-tab active" data-page="page-home"><span class="dot"></span> الصفحة الرئيسية</div>
+  <div class="sheet-tab" data-page="page-dashboard"><span class="dot"></span> Dashboard</div>
+  <div class="sheet-tab" data-page="page-branches"><span class="dot"></span> أداء الفروع</div>
+  <div class="sheet-tab" data-page="page-employees"><span class="dot"></span> أداء الموظفين</div>
+  <div class="sheet-tab" data-page="page-open"><span class="dot"></span> الحالات المفتوحة</div>
+  <div class="sheet-tab" data-page="page-reports"><span class="dot"></span> التقارير</div>
+</div>
+
+<!-- Settings modal: lets you point this file at any deployed Apps Script Web App URL,
+     without editing code. Saved in this browser's localStorage. -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal-box">
+    <h3>⚙️ إعدادات الاتصال</h3>
+    <p>الصقي رابط الـ Web App (لازم ينتهي بـ <code>/exec</code>). لازم يكون الـ Deployment متظبط على "Who has access: Anyone" عشان يشتغل من هنا.</p>
+    <input type="text" id="apiUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec">
+    <div class="modal-actions">
+      <button class="action-btn primary" id="saveApiUrlBtn">💾 حفظ</button>
+      <button class="action-btn" id="cancelApiUrlBtn">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ==================================================================
+   Standalone data layer — fetch() instead of google.script.run.
+   This file can be opened directly (double-click) OR hosted anywhere,
+   because all it needs is network access to the deployed Apps Script
+   Web App's JSON API (Code.gs -> handleJsonAction_).
+   ================================================================== */
+
+// ---- Default API URL (your real deployed Web App) — override anytime via ⚙️ ----
+const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycby1kE988N8TAwORXRPcnxZ_Z64GRrksri161Be5FhkLvCHytlCJVZaDkEs0K1twYLM3/exec";
+let currentApiUrl = localStorage.getItem('fleetSupportApiUrl') || DEFAULT_API_URL;
+
+Chart.defaults.font.family = "Tajawal, sans-serif";
+Chart.defaults.font.size = 11;
+Chart.defaults.color = "#697A91";
+const palette = ["#2E86DE","#1FA971","#E1962E","#E5484D","#8B5CF6","#1D4E89","#5AC8FA","#F76E11"];
+
+let chartInstances = {};
+let lastOpenCases = [];
+let lastReportsBundle = null;
+
+/* ---------------------------------------------------------------- */
+/* API layer (fetch-based, replaces google.script.run)                */
+/* ---------------------------------------------------------------- */
+async function apiCall(action, params) {
+  const url = new URL(currentApiUrl);
+  url.searchParams.set('action', action);
+  Object.entries(params || {}).forEach(([k, v]) => { if (v) url.searchParams.set(k, v); });
+
+  let res;
+  try {
+    res = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
+  } catch (networkErr) {
+    throw new Error('تعذّر الوصول للسيرفر — تأكدي من الاتصال بالإنترنت ومن رابط الـ API فى الإعدادات ⚙️');
+  }
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'حدث خطأ فى الـ API');
+  return json.data;
+}
+
+function getCurrentFilters() {
+  return {
+    dateFrom: val('filterDateFrom') || null,
+    dateTo: val('filterDateTo') || null,
+    branch: val('filterBranch') || null,
+    employee: val('filterEmployee') || null,
+    account: val('filterAccount') || null,
+    driver: val('filterDriver') || null,
+    problemType: val('filterProblemType') || null,
+    statusBucket: val('filterStatus') || null
+  };
+}
+function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+
+/* ---------------------------------------------------------------- */
+/* Connection status UI                                               */
+/* ---------------------------------------------------------------- */
+function setConnected(ok, message) {
+  const pill = document.getElementById('statusPill');
+  const banner = document.getElementById('connectionBanner');
+  document.getElementById('systemStatus').textContent = message || (ok ? 'البيانات محدثة' : 'خطأ فى الاتصال');
+  pill.classList.toggle('error', !ok);
+  if (!ok) {
+    banner.className = 'note-banner error';
+    banner.textContent = '🔴 ' + (message || 'تعذّر الاتصال') + ' — اضغطي هنا لفتح إعدادات رابط الـ API';
+    banner.onclick = openSettings;
+  } else {
+    banner.className = 'note-banner';
+    banner.textContent = '🟢 نسخة مستقلة (index.html) — بتاخد بياناتها لحظيًا من رابط الـ Apps Script عن طريق fetch';
+    banner.onclick = null;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Settings modal                                                     */
+/* ---------------------------------------------------------------- */
+function openSettings() {
+  document.getElementById('apiUrlInput').value = currentApiUrl;
+  document.getElementById('settingsModal').classList.add('open');
+}
+function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
+document.getElementById('settingsBtn').addEventListener('click', openSettings);
+document.getElementById('cancelApiUrlBtn').addEventListener('click', closeSettings);
+document.getElementById('saveApiUrlBtn').addEventListener('click', () => {
+  const newUrl = document.getElementById('apiUrlInput').value.trim();
+  if (!newUrl) return;
+  currentApiUrl = newUrl;
+  localStorage.setItem('fleetSupportApiUrl', newUrl);
+  closeSettings();
+  loadAll();
+});
+
+/* ---------------------------------------------------------------- */
+/* Initial load                                                       */
+/* ---------------------------------------------------------------- */
+async function loadAll() {
+  document.getElementById('systemStatus').textContent = 'جاري التحميل...';
+  try {
+    const data = await apiCall('fullAppData', getCurrentFilters());
+    onFullAppData(data);
+    setConnected(true);
+  } catch (err) {
+    console.error(err);
+    setConnected(false, err.message);
+  }
+}
+
+function onFullAppData(data) {
+  document.getElementById('tsDashboard').textContent = new Date().toLocaleString('ar-EG');
+  document.getElementById('tsInvalidDates').textContent = data.kpis.invalidDateRowCount;
+
+  populateFilterDropdowns(data.filterOptions);
+  populateMonthSelects(data.filterOptions.availableMonths);
+
+  renderKPIs(data.kpis);
+  renderHero(data.kpis);
+  renderDashboardCharts(data);
+  renderBranchTable(data.byBranch);
+  renderEmployeeTable(data.byEmployee);
+  renderEmployeeStats(data.byEmployee, data.kpis);
+  renderOpenCases(data.openCases);
+}
+
+/* ---------------------------------------------------------------- */
+/* Filter dropdowns                                                   */
+/* ---------------------------------------------------------------- */
+function populateFilterDropdowns(opts) {
+  populateSelect('filterBranch', opts.branches, 'كل الفروع');
+  populateSelect('filterEmployee', opts.employees, 'الكل');
+  populateSelect('filterAccount', opts.accounts, 'كل الـ Accounts');
+  populateSelect('filterProblemType', opts.problemTypes, 'الكل');
+  populateSelect('filterDriver', opts.drivers, 'الكل');
+  document.getElementById('driverFilterGroup').classList.toggle('hidden', !opts.hasDrivers);
+}
+function populateSelect(id, values, allLabel) {
+  const el = document.getElementById(id);
+  const current = el.value;
+  el.innerHTML = '<option value="">' + allLabel + '</option>' +
+    values.map(v => '<option value="' + escapeAttr(v) + '">' + escapeHtml(v) + '</option>').join('');
+  if (values.indexOf(current) !== -1) el.value = current;
+}
+function populateMonthSelects(months) {
+  ['branchM1','branchM2','employeeM1','employeeM2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const current = el.value;
+    el.innerHTML = months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+    if (months.indexOf(current) !== -1) {
+      el.value = current;
+    } else if (months.length) {
+      const isSecond = id.endsWith('M2');
+      el.value = isSecond ? months[months.length - 1] : months[Math.max(0, months.length - 2)];
+    }
+  });
+}
+
+/* ---------------------------------------------------------------- */
+/* KPIs + Hero                                                        */
+/* ---------------------------------------------------------------- */
+function renderKPIs(k) {
+  setText('kpiTotal', k.total);
+  setText('kpiSolved', k.solved);
+  setText('kpiFollowup', k.followup);
+  setText('kpiOpen', k.open);
+  setText('kpiResolutionRate', k.resolutionRatePct + '%');
+  setText('kpiBranchCount', k.branchCount);
+  setText('kpiEmployeeCount', k.employeeCount);
+  setText('kpiAccountCount', k.accountCount);
+}
+function renderHero(k) {
+  setText('heroTotal', k.total);
+  setText('heroResolutionRate', k.resolutionRatePct + '%');
+  setText('heroBranchCount', k.branchCount);
+  setText('heroEmployeeCount', k.employeeCount);
+}
+
+/* ---------------------------------------------------------------- */
+/* Dashboard charts                                                   */
+/* ---------------------------------------------------------------- */
+function renderDashboardCharts(data) {
+  bar('chBranch', data.byBranch.map(b => b.name), data.byBranch.map(b => b.total));
+  bar('chEmployee', data.byEmployee.map(e => e.name), data.byEmployee.map(e => e.total), true);
+  bar('chAccount', data.byAccount.map(a => a.name), data.byAccount.map(a => a.total), true);
+  doughnut('chType', data.byProblemType.map(t => t.name), data.byProblemType.map(t => t.total));
+  doughnut('chSolvedOpen', ['تم الحل','قيد المتابعة','لم يتم الحل'], [data.kpis.solved, data.kpis.followup, data.kpis.open]);
+  line('chDaily', data.dailyTrend.map(d => d.date), data.dailyTrend.map(d => d.total), '#1FA971');
+}
+
+/* ---------------------------------------------------------------- */
+/* Branch performance page                                            */
+/* ---------------------------------------------------------------- */
+function renderBranchTable(byBranch) {
+  document.getElementById('branchCountLabel').textContent = byBranch.length + ' فرع';
+  const body = document.getElementById('branchTableBody');
+  body.innerHTML = !byBranch.length
+    ? '<tr><td colspan="7" class="empty-note">لا توجد بيانات مطابقة للفلاتر الحالية</td></tr>'
+    : byBranch.map((b, i) => `
+      <tr><td class="rank-cell">${i+1}</td><td><strong>${escapeHtml(b.name)}</strong></td><td>${b.total}</td>
+      <td>${b.solved}</td><td>${b.followup}</td><td>${b.open}</td>
+      <td><span class="res-bar"><span style="width:${b.resolutionRatePct}%"></span></span>${b.resolutionRatePct}%</td></tr>`
+    ).join('');
+  bar('chBranchRes', byBranch.map(b => b.name), byBranch.map(b => b.resolutionRatePct));
+}
+
+async function branchCompare() {
+  const m1 = val('branchM1'), m2 = val('branchM2');
+  if (!m1 || !m2) { alert('لا يوجد بيانات مؤرخة كافية لعمل مقارنة بين شهرين بعد.'); return; }
+  try {
+    const res = await apiCall('monthComparison', Object.assign({ field: 'branch', monthA: m1, monthB: m2 }, getCurrentFilters()));
+    onBranchCompare(res);
+  } catch (err) { setConnected(false, err.message); }
+}
+function onBranchCompare(res) {
+  setText('branchCompM1Total', res.summary.totalA);
+  setText('branchCompM2Total', res.summary.totalB);
+  setText('branchCompDiff', (res.summary.diff >= 0 ? '+' : '') + res.summary.diff);
+  setText('branchCompChangePct', res.summary.changePct === null ? '—' : (res.summary.changePct >= 0 ? '+' : '') + res.summary.changePct + '%');
+  const top6 = res.rows.slice(0, 6);
+  groupedBar('chBranchCompare', top6.map(r => r.name), top6.map(r => r.totalA), top6.map(r => r.totalB), res.monthA, res.monthB);
+}
+
+/* ---------------------------------------------------------------- */
+/* Employee performance page                                          */
+/* ---------------------------------------------------------------- */
+function renderEmployeeTable(byEmployee) {
+  document.getElementById('employeeCountLabel').textContent = byEmployee.length + ' موظفة';
+  const body = document.getElementById('employeeTableBody');
+  body.innerHTML = !byEmployee.length
+    ? '<tr><td colspan="7" class="empty-note">لا توجد بيانات مطابقة للفلاتر الحالية</td></tr>'
+    : byEmployee.map((e, i) => `
+      <tr><td class="rank-cell">${i+1}</td><td><strong>${escapeHtml(e.name)}</strong></td><td>${e.total}</td>
+      <td>${e.solved}</td><td>${e.followup}</td><td>${e.open}</td>
+      <td><span class="res-bar"><span style="width:${e.resolutionRatePct}%"></span></span>${e.resolutionRatePct}%</td></tr>`
+    ).join('');
+  bar('chEmployeeWorkload', byEmployee.map(e => e.name), byEmployee.map(e => e.total));
+}
+function renderEmployeeStats(byEmployee, kpis) {
+  setText('topEmployeeLabel', byEmployee.length ? byEmployee[0].name + ' — ' + byEmployee[0].total + ' حالة' : '—');
+  const avg = byEmployee.length ? Math.round((kpis.total / byEmployee.length) * 10) / 10 : 0;
+  setText('avgPerEmployeeLabel', avg + ' حالة');
+}
+
+async function employeeCompare() {
+  const m1 = val('employeeM1'), m2 = val('employeeM2');
+  if (!m1 || !m2) { alert('لا يوجد بيانات مؤرخة كافية لعمل مقارنة بين شهرين بعد.'); return; }
+  try {
+    const res = await apiCall('monthComparison', Object.assign({ field: 'employee', monthA: m1, monthB: m2 }, getCurrentFilters()));
+    onEmployeeCompare(res);
+  } catch (err) { setConnected(false, err.message); }
+}
+function onEmployeeCompare(res) {
+  const body = document.getElementById('employeeCompareBody');
+  body.innerHTML = !res.rows.length
+    ? '<tr><td colspan="8" class="empty-note">لا توجد بيانات لهذين الشهرين</td></tr>'
+    : res.rows.map(r => {
+      let badge;
+      if (r.changePct === null) badge = '<span class="badge-status badge-flat">⚪ لا يوجد أساس للمقارنة</span>';
+      else if (r.changePct > 3) badge = '<span class="badge-status badge-up">🟢 تحسن</span>';
+      else if (r.changePct < -3) badge = '<span class="badge-status badge-down">🔴 انخفاض</span>';
+      else badge = '<span class="badge-status badge-flat">⚪ ثابت</span>';
+      const pctText = r.changePct === null ? '—' : (r.changePct >= 0 ? '+' : '') + r.changePct + '%';
+      return `<tr><td><strong>${escapeHtml(r.name)}</strong></td><td>${r.totalA}</td><td>${r.solvedA}</td>
+        <td>${r.totalB}</td><td>${r.solvedB}</td><td>${r.diff >= 0 ? '+' : ''}${r.diff}</td>
+        <td>${pctText}</td><td>${badge}</td></tr>`;
+    }).join('');
+  const top6 = res.rows.slice(0, 6);
+  groupedBar('chEmployeeCompare', top6.map(r => r.name), top6.map(r => r.totalA), top6.map(r => r.totalB), res.monthA, res.monthB);
+}
+
+/* ---------------------------------------------------------------- */
+/* Open Cases page                                                    */
+/* ---------------------------------------------------------------- */
+function renderOpenCases(cases) {
+  lastOpenCases = cases || [];
+  applyLiveSearch(document.getElementById('liveSearch').value);
+}
+function applyLiveSearch(query) {
+  const q = (query || '').trim().toLowerCase();
+  const rows = !q ? lastOpenCases : lastOpenCases.filter(c =>
+    [c.waybillCode, c.account, c.driver, c.employee, c.branch].some(v => v && v.toLowerCase().includes(q))
+  );
+  document.getElementById('liveCount').textContent = rows.length;
+  const body = document.getElementById('liveTableBody');
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="10" class="empty-note">لا توجد حالات مفتوحة مطابقة</td></tr>';
+    return;
+  }
+  const pillClass = { OPEN: 'pill-open', FOLLOWUP: 'pill-followup', SOLVED: 'pill-solved' };
+  body.innerHTML = rows.map(c => `
+    <tr><td>${c.date || '—'}</td><td><strong>${escapeHtml(c.waybillCode)}</strong></td><td>${escapeHtml(c.account)}</td>
+    <td>${escapeHtml(c.driver)}</td><td>${escapeHtml(c.branch)}</td><td>${escapeHtml(c.problemType)}</td>
+    <td><span class="pill ${pillClass[c.statusBucket] || ''}">${escapeHtml(c.statusLabel)}</span></td>
+    <td>${escapeHtml(c.employee)}</td><td>${escapeHtml(c.lastUpdated || '—')}</td>
+    <td style="max-width:160px;color:var(--text-muted);">${escapeHtml(c.notes)}</td></tr>`
+  ).join('');
+}
+
+/* ---------------------------------------------------------------- */
+/* Reports page                                                       */
+/* ---------------------------------------------------------------- */
+async function showReportStats() {
+  const btn = document.getElementById('showStatsBtn');
+  btn.textContent = '⏳ جاري الحساب...';
+  try {
+    const bundle = await apiCall('reportsBundle', getCurrentFilters());
+    onReportsBundle(bundle);
+  } catch (err) {
+    setConnected(false, err.message);
+    btn.innerHTML = '📊 عرض الإحصائية';
+  }
+}
+function onReportsBundle(bundle) {
+  lastReportsBundle = bundle;
+  document.getElementById('showStatsBtn').innerHTML = '✅ تم تحديث الإحصائية';
+  setTimeout(() => { document.getElementById('showStatsBtn').innerHTML = '📊 عرض الإحصائية'; }, 1200);
+
+  setText('reportTotal', bundle.kpis.total);
+  setText('reportSolved', bundle.kpis.solved);
+  setText('reportOpen', bundle.kpis.open);
+  setText('reportFollowup', bundle.kpis.followup);
+  setText('reportTopBranch', bundle.topBranch ? `${bundle.topBranch.name} (${bundle.topBranch.total})` : '—');
+  setText('reportTopAccount', bundle.topAccount ? `${bundle.topAccount.name} (${bundle.topAccount.total})` : '—');
+  setText('reportTopProblemType', bundle.topProblemType ? `${bundle.topProblemType.name} (${bundle.topProblemType.total})` : '—');
+  setText('reportAvgPerEmployee', bundle.avgCasesPerEmployee);
+
+  bar('chReportBranch', bundle.byBranch.map(b => b.name), bundle.byBranch.map(b => b.total));
+  bar('chReportEmployee', bundle.byEmployee.map(e => e.name), bundle.byEmployee.map(e => e.total), true);
+}
+
+function exportReportCSV() {
+  if (!lastReportsBundle) { alert('اضغطي "عرض الإحصائية" أولاً.'); return; }
+  const b = lastReportsBundle;
+  let csv = 'ملخص التقرير\n';
+  csv += 'إجمالى المشاكل,' + b.kpis.total + '\n';
+  csv += 'تم الحل,' + b.kpis.solved + '\n';
+  csv += 'قيد المتابعة,' + b.kpis.followup + '\n';
+  csv += 'لم يتم الحل,' + b.kpis.open + '\n';
+  csv += 'نسبة الحل,' + b.kpis.resolutionRatePct + '%\n\n';
+  csv += 'الفرع,عدد المشاكل,تم الحل,قيد المتابعة,لم يتم الحل,نسبة الحل\n';
+  b.byBranch.forEach(r => { csv += `${r.name},${r.total},${r.solved},${r.followup},${r.open},${r.resolutionRatePct}%\n`; });
+  csv += '\nالموظفة,عدد الحالات,تم الحل,قيد المتابعة,لم يتم الحل,نسبة الحل\n';
+  b.byEmployee.forEach(r => { csv += `${r.name},${r.total},${r.solved},${r.followup},${r.open},${r.resolutionRatePct}%\n`; });
+
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'fleet-support-report-' + new Date().toISOString().slice(0,10) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ---------------------------------------------------------------- */
+/* Chart helpers                                                      */
+/* ---------------------------------------------------------------- */
+function destroyChart(id) { if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; } }
+function bar(id, labels, data, horizontal) {
+  destroyChart(id);
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  chartInstances[id] = new Chart(ctx, { type: 'bar',
+    data: { labels, datasets: [{ data, backgroundColor: '#2E86DE', borderRadius: 6, maxBarThickness: 26 }] },
+    options: { indexAxis: horizontal ? 'y' : 'x', plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
+  });
+}
+function doughnut(id, labels, data) {
+  destroyChart(id);
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  chartInstances[id] = new Chart(ctx, { type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: palette, borderWidth: 2, borderColor: '#fff' }] },
+    options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 9, padding: 10 } } }, responsive: true, maintainAspectRatio: false, cutout: '62%' }
+  });
+}
+function line(id, labels, data, color) {
+  destroyChart(id);
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  chartInstances[id] = new Chart(ctx, { type: 'line',
+    data: { labels, datasets: [{ data, borderColor: color, backgroundColor: color + '22', fill: true, tension: .35, pointRadius: 3 }] },
+    options: { plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
+  });
+}
+function groupedBar(id, labels, d1, d2, l1, l2) {
+  destroyChart(id);
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  chartInstances[id] = new Chart(ctx, { type: 'bar',
+    data: { labels, datasets: [
+      { label: l1, data: d1, backgroundColor: '#C9D6E6', borderRadius: 6 },
+      { label: l2, data: d2, backgroundColor: '#2E86DE', borderRadius: 6 }
+    ] }, options: { plugins: { legend: { position: 'bottom' } }, responsive: true, maintainAspectRatio: false }
+  });
+}
+
+/* ---------------------------------------------------------------- */
+/* Small utils                                                        */
+/* ---------------------------------------------------------------- */
+function setText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+/* ---------------------------------------------------------------- */
+/* Navigation                                                         */
+/* ---------------------------------------------------------------- */
+function goToPage(pageId) {
+  document.querySelectorAll('.sheet-tab').forEach(t => t.classList.toggle('active', t.dataset.page === pageId));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ---------------------------------------------------------------- */
+/* Event wiring                                                       */
+/* ---------------------------------------------------------------- */
+document.querySelectorAll('.sheet-tab').forEach(tab => tab.addEventListener('click', () => goToPage(tab.dataset.page)));
+document.querySelectorAll('.menu-card[data-goto]').forEach(c => c.addEventListener('click', () => goToPage(c.dataset.goto)));
+
+document.getElementById('applyFiltersBtn').addEventListener('click', loadAll);
+document.getElementById('clearFiltersBtn').addEventListener('click', () => {
+  ['filterDateFrom','filterDateTo','filterBranch','filterEmployee','filterAccount','filterDriver','filterProblemType','filterStatus']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  loadAll();
+});
+
+document.getElementById('refreshBtn').addEventListener('click', async function () {
+  const btn = this;
+  btn.classList.add('spinning');
+  btn.disabled = true;
+  try {
+    const data = await apiCall('refresh', getCurrentFilters());
+    onFullAppData(data);
+    setConnected(true);
+  } catch (err) {
+    setConnected(false, err.message);
+  } finally {
+    btn.classList.remove('spinning');
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('liveSearch').addEventListener('input', e => applyLiveSearch(e.target.value));
+document.getElementById('branchCompareBtn').addEventListener('click', branchCompare);
+document.getElementById('employeeCompareBtn').addEventListener('click', employeeCompare);
+document.getElementById('showStatsBtn').addEventListener('click', showReportStats);
+document.getElementById('exportExcelBtn').addEventListener('click', exportReportCSV);
+document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+/* ---------------------------------------------------------------- */
+/* Boot                                                                */
+/* ---------------------------------------------------------------- */
+loadAll();
+</script>
+</body>
+</html>
