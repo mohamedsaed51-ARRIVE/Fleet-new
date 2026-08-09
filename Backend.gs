@@ -22,7 +22,17 @@ function getNormalizedRecords_() {
   const cache = CacheService.getScriptCache();
   const cached = cache.get('normalized_records_v1');
   if (cached) {
-    try { return JSON.parse(cached); } catch (e) { /* fall through to rebuild */ }
+    try {
+      const parsed = JSON.parse(cached);
+      // BUGFIX: JSON.stringify turns Date objects into ISO strings, and
+      // JSON.parse does NOT turn them back into real Date objects. Without
+      // this rehydration step, every date-range filter silently returns
+      // zero rows whenever this cache is warm (comparing a string to a
+      // Date evaluates to false/NaN instead of throwing, so it fails
+      // silently). Re-create real Date objects here on every cache hit.
+      parsed.records.forEach(r => { if (r.date) r.date = new Date(r.date); });
+      return parsed;
+    } catch (e) { /* fall through to rebuild */ }
   }
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
