@@ -986,6 +986,9 @@ async function exportManagementReportPdf() {
   btn.innerHTML = '⏳ جاري إنشاء التقرير...';
   try {
     const res = await apiCall('managementReportPdf', getCurrentFilters());
+    if (!res || !res.base64) {
+      throw new Error('لم يتم استلام ملف PDF صالح من السيرفر.');
+    }
     const byteChars = atob(res.base64);
     const byteNumbers = new Array(byteChars.length);
     for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
@@ -1000,6 +1003,7 @@ async function exportManagementReportPdf() {
     URL.revokeObjectURL(url);
     btn.innerHTML = '✅ تم تصدير التقرير';
   } catch (err) {
+    console.error('Management Report Export Error:', err);
     setConnected(false, err.message);
     btn.innerHTML = '⚠️ فشل التصدير — حاولي مجددًا';
   } finally {

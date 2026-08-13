@@ -14,16 +14,28 @@
 /** Public entry point — called from Code.gs (index.html/fetch flow) and directly via google.script.run (Dashboard.html flow). */
 function getManagementReportPdf(filters) {
   filters = filters || {};
-  const bundle = getReportsBundle(filters);
-  const filterOptions = getFilterOptions();
+  try {
+    const bundle = getReportsBundle(filters);
+    const filterOptions = getFilterOptions();
 
-  const fileName = buildReportFileName_(filters);
-  const html = buildManagementReportHtml_(bundle, filters, filterOptions);
+    const fileName = buildReportFileName_(filters);
+    const html = buildManagementReportHtml_(bundle, filters, filterOptions);
 
-  const pdfBlob = HtmlService.createHtmlOutput(html).getAs('application/pdf').setName(fileName);
-  const base64 = Utilities.base64Encode(pdfBlob.getBytes());
+    const pdfBlob = HtmlService.createHtmlOutput(html).getAs('application/pdf').setName(fileName);
+    const base64 = Utilities.base64Encode(pdfBlob.getBytes());
 
-  return { fileName: fileName, base64: base64, mimeType: 'application/pdf' };
+    if (!base64) {
+      throw new Error('فشل إنشاء ملف PDF — الناتج فارغ.');
+    }
+
+    return { fileName: fileName, base64: base64, mimeType: 'application/pdf' };
+  } catch (error) {
+    // Logged server-side (visible in Apps Script "Executions" log) so the
+    // real cause is never silent for the developer, even though the user
+    // only ever sees the friendly Arabic message below.
+    console.error('Management Report Export Error:', error);
+    throw new Error('حدث خطأ أثناء إنشاء التقرير، برجاء المحاولة مرة أخرى. (' + (error && error.message ? error.message : error) + ')');
+  }
 }
 
 /** e.g. Fleet_Support_Report_2026-08-12.pdf or Fleet_Support_Report_ElHaram_2026-08-12.pdf when a single branch is filtered. */

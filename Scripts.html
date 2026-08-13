@@ -417,27 +417,49 @@ function exportManagementReportPdf() {
   const original = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '⏳ جاري إنشاء التقرير...';
+
+  const resetBtn = (delay) => {
+    setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, delay || 1800);
+  };
+
   google.script.run
     .withSuccessHandler(res => {
-      const byteChars = atob(res.base64);
-      const byteNumbers = new Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
-      const blob = new Blob([new Uint8Array(byteNumbers)], { type: res.mimeType || 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = res.fileName || 'Fleet_Support_Report.pdf';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      btn.innerHTML = '✅ تم تصدير التقرير';
-      setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 1800);
+      // IMPORTANT: google.script.run only routes SERVER-side exceptions to
+      // withFailureHandler. Any error thrown in here (bad/missing base64,
+      // atob/Blob decode failure, etc.) is a CLIENT-side error and would
+      // otherwise be silently swallowed by the browser, leaving the button
+      // stuck on "جاري إنشاء التقرير..." forever with no feedback. This
+      // try/catch is what makes failures visible instead of silent.
+      try {
+        if (!res || !res.base64) {
+          throw new Error('لم يتم استلام ملف PDF صالح من السيرفر.');
+        }
+        const byteChars = atob(res.base64);
+        const byteNumbers = new Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+        const blob = new Blob([new Uint8Array(byteNumbers)], { type: res.mimeType || 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = res.fileName || 'Fleet_Support_Report.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        btn.innerHTML = '✅ تم تصدير التقرير';
+        resetBtn();
+      } catch (error) {
+        console.error('Management Report Export Error:', error);
+        alert('حدث خطأ أثناء إنشاء التقرير، برجاء المحاولة مرة أخرى.');
+        btn.innerHTML = '⚠️ فشل التصدير — حاولي مجددًا';
+        resetBtn();
+      }
     })
     .withFailureHandler(err => {
+      console.error('Management Report Export Error:', err);
       onLoadError(err);
       btn.innerHTML = '⚠️ فشل التصدير — حاولي مجددًا';
-      setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 1800);
+      resetBtn();
     })
     .getManagementReportPdf(getCurrentFilters());
 }
