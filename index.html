@@ -1,3 +1,23 @@
+<!--
+  ============================================================================
+  index.html — OPTIONAL standalone mirror. NOT the app's Dashboard.
+
+  This file is never served by the Web App's doGet() (see Code.gs). The
+  ONE real Dashboard is Dashboard.html + Scripts.html, returned at your
+  /exec URL. This file exists only for the separate use case of hosting
+  a copy of the same UI *outside* script.google.com (a static site, a
+  local double-clicked file, etc.), talking to the same backend purely
+  over fetch() against the JSON API (doGet with ?action=...).
+
+  If you don't need that, ignore this file — editing it has no effect
+  on what your Web App URL shows. If you do use it, remember: unlike
+  Dashboard.html (which always calls the backend it's literally running
+  inside of), this file points at a hardcoded DEFAULT_API_URL below,
+  overridable via the ⚙️ settings button. Always double check that URL
+  after redeploying — see the "Deployment" note in the project README/
+  chat instructions for how deployments and their /exec URL work.
+  ============================================================================
+-->
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -612,13 +632,13 @@ function setConnected(ok, message) {
   if (!ok) {
     banner.style.display = '';
     banner.className = 'note-banner error';
-    banner.textContent = '🔴 ' + (message || 'تعذّر الاتصال') + ' — اضغطي هنا لفتح إعدادات رابط الـ API';
+    banner.textContent = '🔴 ' + (message || 'تعذّر الاتصال') + ' — الرابط الحالى: ' + currentApiUrl + ' — اضغطي هنا لفتح إعدادات رابط الـ API';
     banner.onclick = openSettings;
   } else {
-    banner.style.display = 'none';
+    banner.style.display = '';
     banner.className = 'note-banner';
-    banner.textContent = '🟢 نسخة مستقلة (index.html) — بتاخد بياناتها لحظيًا من رابط الـ Apps Script عن طريق fetch';
-    banner.onclick = null;
+    banner.textContent = '🟢 نسخة مستقلة (index.html) — متصلة بـ: ' + currentApiUrl;
+    banner.onclick = openSettings;
   }
 }
 
