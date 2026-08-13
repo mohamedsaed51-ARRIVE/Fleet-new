@@ -90,7 +90,23 @@ function getNormalizedRecords_() {
   });
 
   const result = { records: records, invalidDateCount: invalidDateCount };
-  cache.put('normalized_records_v1', JSON.stringify(result), CONFIG.CACHE_TTL_SECONDS);
+
+  // CacheService.put() throws "Argument too large: value" if the string
+  // exceeds ~100KB. As Master Data grows, the serialized records can pass
+  // that limit, which used to crash the whole request. Guard by checking
+  // the size first and simply skipping the cache write when it's too big —
+  // the dashboard still works, just without the cache speed-up for that call.
+  const serialized = JSON.stringify(result);
+  const CACHE_SAFE_LIMIT_BYTES = 90000; // stay safely under Google's 100KB cap
+  if (serialized.length < CACHE_SAFE_LIMIT_BYTES) {
+    try {
+      cache.put('normalized_records_v1', serialized, CONFIG.CACHE_TTL_SECONDS);
+    } catch (e) {
+      // Belt-and-suspenders: even if the size check passes but the put()
+      // still fails for any reason, never let caching break the request.
+    }
+  }
+
   return result;
 }
 
@@ -332,6 +348,18 @@ function getReportsBundle(filters) {
   const byProblemType = getProblemTypeBreakdown(filters);
   const byEmployee = getEmployeePerformance(filters);
   const kpis = getKPIs(filters);
+  const dailyTrend = getDailyTrend(filters);
+
+  // Executive Summary extras: add "% of total" to every ranked list (used by
+  // Employee Ranking / Problem Types tables), and surface whoever is best by
+  // SOLUTION RATE — separate from "most cases", which byBranch[0]/byEmployee[0]
+  // already give us.
+  addPctOfTotal_(byBranch, kpis.total);
+  addPctOfTotal_(byEmployee, kpis.total);
+  addPctOfTotal_(byProblemType, kpis.total);
+
+  const bestEmployeeBySolution = bestBySolutionRate_(byEmployee);
+  const bestBranchBySolution = bestBySolutionRate_(byBranch);
 
   return {
     kpis: kpis,
@@ -339,13 +367,86 @@ function getReportsBundle(filters) {
     byEmployee: byEmployee,
     byAccount: byAccount,
     byProblemType: byProblemType,
-    dailyTrend: getDailyTrend(filters),
+    dailyTrend: dailyTrend,
+    dailyStatusBreakdown: getDailyStatusBreakdown(filters),
     openCases: getOpenCases(filters),
     topBranch: byBranch.length ? byBranch[0] : null,
     topAccount: byAccount.length ? byAccount[0] : null,
     topProblemType: byProblemType.length ? byProblemType[0] : null,
-    avgCasesPerEmployee: byEmployee.length ? Math.round((kpis.total / byEmployee.length) * 10) / 10 : 0
+    bestEmployeeBySolution: bestEmployeeBySolution,
+    bestBranchBySolution: bestBranchBySolution,
+    avgCasesPerEmployee: byEmployee.length ? Math.round((kpis.total / byEmployee.length) * 10) / 10 : 0,
+    reportPeriod: getReportPeriod_(dailyTrend, filters)
   };
+}
+
+/** Adds a `pctOfTotal` field (1 decimal, 0 when total is 0) to each row of a grouped list, in place. */
+function addPctOfTotal_(list, total) {
+  list.forEach(row => { row.pctOfTotal = pct_(row.total, total); });
+  return list;
+}
+
+/** Picks the entry with the highest resolutionRatePct (min 1 case), tie-broken by higher total. Null if list is empty. */
+function bestBySolutionRate_(list) {
+  const candidates = list.filter(r => r.total > 0);
+  if (!candidates.length) return null;
+  return candidates.slice().sort((a, b) =>
+    (b.resolutionRatePct - a.resolutionRatePct) || (b.total - a.total)
+  )[0];
+}
+
+/** 'YYYY-MM-DD' → 'YYYY-MM-DD' period label for the report header. Falls back to the actual min/max dates in the filtered data when dateFrom/dateTo aren't set. */
+function getReportPeriod_(dailyTrend, filters) {
+  if (filters && (filters.dateFrom || filters.dateTo)) {
+    return { from: filters.dateFrom || (dailyTrend.length ? dailyTrend[0].date : ''), to: filters.dateTo || (dailyTrend.length ? dailyTrend[dailyTrend.length - 1].date : '') };
+  }
+  if (!dailyTrend.length) return { from: '', to: '' };
+  return { from: dailyTrend[0].date, to: dailyTrend[dailyTrend.length - 1].date };
+}
+
+/* ============================== DAILY STATUS (raw statuses) ============================== */
+
+/**
+ * Daily breakdown by the RAW "حالة الشحنة" string (not the 3-way bucket),
+ * e.g. تم التاكيد / تم التسليم / تم الحل / جارى الحل / لم يتم التاكيد / لم يتم الحل.
+ * Column set is built dynamically from whichever raw statuses actually
+ * appear in the filtered data (ordered: known STATUS_BUCKETS values first,
+ * in bucket order, then any unmapped/UNKNOWN values alphabetically) —
+ * this avoids hardcoding spellings that may drift from the sheet.
+ */
+function getDailyStatusBreakdown(filters) {
+  const data = getNormalizedRecords_();
+  const filtered = applyFilters_(data.records, filters).filter(r => r.hasValidDate);
+
+  // Build the ordered column list.
+  const known = [];
+  ['SOLVED', 'FOLLOWUP', 'OPEN'].forEach(bucket => {
+    (CONFIG.STATUS_BUCKETS[bucket] || []).forEach(s => { if (known.indexOf(s) === -1) known.push(s); });
+  });
+  const seenExtra = {};
+  filtered.forEach(r => { if (r.status && known.indexOf(r.status) === -1) seenExtra[r.status] = true; });
+  const statusKeys = known.concat(Object.keys(seenExtra).sort((a, b) => a.localeCompare(b, 'ar')));
+
+  const byDate = {};
+  filtered.forEach(r => {
+    if (!byDate[r.dateKey]) {
+      byDate[r.dateKey] = { date: r.dateKey, counts: {}, total: 0 };
+      statusKeys.forEach(s => { byDate[r.dateKey].counts[s] = 0; });
+    }
+    const row = byDate[r.dateKey];
+    if (r.status) row.counts[r.status] = (row.counts[r.status] || 0) + 1;
+    row.total++;
+  });
+
+  const rows = Object.keys(byDate).map(k => byDate[k]).sort((a, b) => a.date.localeCompare(b.date));
+  const grandTotal = { counts: {}, total: 0 };
+  statusKeys.forEach(s => { grandTotal.counts[s] = 0; });
+  rows.forEach(r => {
+    statusKeys.forEach(s => { grandTotal.counts[s] += (r.counts[s] || 0); });
+    grandTotal.total += r.total;
+  });
+
+  return { statusKeys: statusKeys, rows: rows, grandTotal: grandTotal };
 }
 
 /* ============================== FILTER OPTIONS ============================== */

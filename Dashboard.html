@@ -219,20 +219,115 @@
       <button class="action-btn" id="printBtn">🖨️ طباعة</button>
     </div>
 
+    <div class="section-heading">📋 Executive Summary</div>
     <div class="answers-grid">
       <div class="answer-card"><div class="q">إجمالى المشاكل فى الفترة</div><div class="a" id="reportTotal">—</div></div>
       <div class="answer-card"><div class="q">تم الحل</div><div class="a" id="reportSolved" style="color:var(--success)">—</div></div>
-      <div class="answer-card"><div class="q">لم يتم الحل</div><div class="a" id="reportOpen" style="color:var(--danger)">—</div></div>
       <div class="answer-card"><div class="q">قيد المتابعة</div><div class="a" id="reportFollowup" style="color:var(--warning)">—</div></div>
+      <div class="answer-card"><div class="q">لم يتم الحل</div><div class="a" id="reportOpen" style="color:var(--danger)">—</div></div>
+      <div class="answer-card"><div class="q">Solution %</div><div class="a" id="reportResolutionRate" style="color:var(--primary)">—</div></div>
+      <div class="answer-card"><div class="q">عدد الفروع</div><div class="a" id="reportBranchCount">—</div></div>
+      <div class="answer-card"><div class="q">عدد الموظفات</div><div class="a" id="reportEmployeeCount">—</div></div>
+      <div class="answer-card"><div class="q">أكثر نوع مشكلة</div><div class="a" id="reportTopProblemType" style="font-size:14px;">—</div></div>
       <div class="answer-card"><div class="q">أكثر فرع به مشاكل</div><div class="a" id="reportTopBranch" style="font-size:14px;">—</div></div>
       <div class="answer-card"><div class="q">أكثر Account به مشاكل</div><div class="a" id="reportTopAccount" style="font-size:14px;">—</div></div>
-      <div class="answer-card"><div class="q">أكثر نوع مشكلة</div><div class="a" id="reportTopProblemType" style="font-size:14px;">—</div></div>
-      <div class="answer-card"><div class="q">عدد الحالات لكل موظفة (متوسط)</div><div class="a" id="reportAvgPerEmployee">—</div></div>
+      <div class="answer-card"><div class="q">أفضل موظفة (إنتاجية)</div><div class="a" id="reportBestEmployee" style="font-size:14px;">—</div></div>
+      <div class="answer-card"><div class="q">أفضل فرع (Solution %)</div><div class="a" id="reportBestBranchSolution" style="font-size:14px;">—</div></div>
     </div>
 
     <div class="grid-2">
       <div class="card"><h3>🏢 عدد المشاكل حسب الفرع</h3><div class="chart-wrap"><canvas id="chReportBranch"></canvas></div></div>
       <div class="card"><h3>👤 عدد الحالات لكل موظفة</h3><div class="chart-wrap"><canvas id="chReportEmployee"></canvas></div></div>
+    </div>
+
+    <div class="section-heading">📅 الشحنات اليومية (Daily Shipments)</div>
+    <div class="card"><div class="chart-wrap"><canvas id="chDailyShipments"></canvas></div></div>
+    <div class="table-card">
+      <div class="table-head"><strong style="font-size:13px;">عدد الشحنات لكل يوم</strong></div>
+      <div class="table-scroll">
+        <table><thead><tr><th>التاريخ</th><th>عدد الشحنات</th></tr></thead>
+        <tbody id="dailyShipmentsBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="section-heading">🔍 التحقيق والحل اليومي (Daily Investigation / Resolution)</div>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table><thead><tr><th>التاريخ</th><th>إجمالى الشحنات</th><th>تم الحل والتأكيد</th><th>جاري الحل</th><th>فشل التواصل والتأكيد</th></tr></thead>
+        <tbody id="dailyInvestigationBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="section-heading">📌 الحالة اليومية (Daily Status)</div>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table>
+          <thead><tr id="dailyStatusHead"><th>التاريخ</th></tr></thead>
+          <tbody id="dailyStatusBody"></tbody>
+          <tfoot><tr id="dailyStatusFoot" style="font-weight:800;background:var(--surface-soft);"></tr></tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="section-heading">👩‍💼 إنتاجية الموظفات (Employee Productivity)</div>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table><thead><tr><th>الموظفة</th><th>إجمالي الحالات</th><th>تم الحل</th><th>جاري الحل</th><th>فشل التواصل</th><th>Solution %</th></tr></thead>
+        <tbody id="employeeProductivityBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="section-heading">🏅 ترتيب الموظفات (Employee Ranking)</div>
+    <div class="stat-strip">
+      <div class="stat-card"><div><div class="label">Top Performer</div><div class="value" id="topPerformerLabel">—</div></div><div class="icon">🏆</div></div>
+      <div class="stat-card"><div><div class="label">أفضل Solution %</div><div class="value" id="bestSolutionEmployeeLabel">—</div></div><div class="icon">🎯</div></div>
+    </div>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table><thead><tr><th>#</th><th>الموظفة</th><th>عدد الحالات</th><th>% من الإجمالى</th><th>Solution %</th></tr></thead>
+        <tbody id="employeeRankingBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="section-heading">⚠️ أنواع المشاكل (Problem Types)</div>
+    <div class="card"><div class="chart-wrap"><canvas id="chReportProblemTypes"></canvas></div></div>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table><thead><tr><th>نوع المشكلة</th><th>عدد الحالات</th><th>النسبة</th></tr></thead>
+        <tbody id="problemTypesBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="section-heading">🛠️ حل المشاكل حسب النوع (Problem Resolution)</div>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table><thead><tr><th>نوع المشكلة</th><th>الإجمالي</th><th>تم الحل</th><th>جاري الحل</th><th>فشل التواصل</th><th>Solution %</th></tr></thead>
+        <tbody id="problemResolutionBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="section-heading">🏢 أداء الفروع (Branch Performance)</div>
+    <div class="stat-strip">
+      <div class="stat-card"><div><div class="label">أكثر فرع لديه مشاكل</div><div class="value" id="reportBranchMost">—</div></div><div class="icon">🔴</div></div>
+      <div class="stat-card"><div><div class="label">أفضل فرع فى Solution %</div><div class="value" id="reportBranchBest">—</div></div><div class="icon">✅</div></div>
+    </div>
+    <div class="table-card">
+      <div class="table-head"><strong style="font-size:13px;">ترتيب الفروع</strong><span style="font-size:11.5px;color:var(--text-muted);" id="reportBranchesNeedingAttention">—</span></div>
+      <div class="table-scroll">
+        <table><thead><tr><th>الفرع</th><th>إجمالي المشاكل</th><th>تم الحل</th><th>جاري الحل</th><th>فشل التواصل</th><th>Solution %</th></tr></thead>
+        <tbody id="branchPerfReportBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="section-heading">📄 تقرير الإدارة (Management Report)</div>
+    <div class="table-card">
+      <div class="table-head"><strong style="font-size:13px;">Report Preview</strong></div>
+      <div id="reportPreviewBox" style="padding:16px 18px;font-size:12.5px;line-height:2;color:var(--text-muted);">
+        اضغطي "📊 عرض الإحصائية" أولاً لبناء التقرير حسب الفلاتر الحالية.
+      </div>
+      <div style="padding:0 18px 18px;">
+        <button class="action-btn primary" id="exportPdfBtn">📄 تصدير تقرير للإدارة</button>
+      </div>
     </div>
   </section>
 

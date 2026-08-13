@@ -57,6 +57,8 @@ function handleJsonAction_(params) {
       case 'openCases': payload = getOpenCases(filters); break;
       case 'filterOptions': payload = getFilterOptions(); break;
       case 'reportsBundle': payload = getReportsBundle(filters); break;
+      case 'dailyStatusBreakdown': payload = getDailyStatusBreakdown(filters); break;
+      case 'managementReportPdf': payload = getManagementReportPdf(filters); break;
       case 'fullAppData': payload = getFullAppData(filters); break;
       case 'refresh': payload = refreshAndGetFullAppData(filters); break;
       case 'monthComparison':

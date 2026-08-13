@@ -298,17 +298,148 @@ function onReportsBundle(bundle) {
   document.getElementById('showStatsBtn').innerHTML = '✅ تم تحديث الإحصائية';
   setTimeout(() => { document.getElementById('showStatsBtn').innerHTML = '📊 عرض الإحصائية'; }, 1200);
 
-  setText('reportTotal', bundle.kpis.total);
-  setText('reportSolved', bundle.kpis.solved);
-  setText('reportOpen', bundle.kpis.open);
-  setText('reportFollowup', bundle.kpis.followup);
+  renderReportsPage(bundle);
+}
+
+function renderReportsPage(bundle) {
+  const k = bundle.kpis;
+
+  // Executive Summary
+  setText('reportTotal', k.total);
+  setText('reportSolved', k.solved);
+  setText('reportOpen', k.open);
+  setText('reportFollowup', k.followup);
+  setText('reportResolutionRate', k.resolutionRatePct + '%');
+  setText('reportBranchCount', k.branchCount);
+  setText('reportEmployeeCount', k.employeeCount);
   setText('reportTopBranch', bundle.topBranch ? `${bundle.topBranch.name} (${bundle.topBranch.total})` : '—');
   setText('reportTopAccount', bundle.topAccount ? `${bundle.topAccount.name} (${bundle.topAccount.total})` : '—');
   setText('reportTopProblemType', bundle.topProblemType ? `${bundle.topProblemType.name} (${bundle.topProblemType.total})` : '—');
-  setText('reportAvgPerEmployee', bundle.avgCasesPerEmployee);
+  setText('reportBestEmployee', bundle.bestEmployeeBySolution ? `${bundle.bestEmployeeBySolution.name} (${bundle.bestEmployeeBySolution.resolutionRatePct}%)` : '—');
+  setText('reportBestBranchSolution', bundle.bestBranchBySolution ? `${bundle.bestBranchBySolution.name} (${bundle.bestBranchBySolution.resolutionRatePct}%)` : '—');
 
   bar('chReportBranch', bundle.byBranch.map(b => b.name), bundle.byBranch.map(b => b.total));
   bar('chReportEmployee', bundle.byEmployee.map(e => e.name), bundle.byEmployee.map(e => e.total), true);
+
+  // A. Daily Shipments
+  line('chDailyShipments', bundle.dailyTrend.map(d => d.date), bundle.dailyTrend.map(d => d.total), '#2E86DE');
+  const dsBody = document.getElementById('dailyShipmentsBody');
+  dsBody.innerHTML = bundle.dailyTrend.length
+    ? bundle.dailyTrend.map(d => `<tr><td>${d.date}</td><td>${d.total}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty-note">لا توجد بيانات فى الفترة المحددة</td></tr>';
+
+  // B. Daily Investigation / Resolution
+  const diBody = document.getElementById('dailyInvestigationBody');
+  diBody.innerHTML = bundle.dailyTrend.length
+    ? bundle.dailyTrend.map(d => {
+        const sp = pctOf(d.solved, d.total), fp = pctOf(d.followup, d.total), op = pctOf(d.open, d.total);
+        return `<tr><td>${d.date}</td><td>${d.total}</td><td>${d.solved} (${sp}%)</td><td>${d.followup} (${fp}%)</td><td>${d.open} (${op}%)</td></tr>`;
+      }).join('')
+    : '<tr><td colspan="5" class="empty-note">لا توجد بيانات فى الفترة المحددة</td></tr>';
+
+  // C. Daily Status (dynamic raw-status columns)
+  renderDailyStatusTable(bundle.dailyStatusBreakdown);
+
+  // D. Employee Productivity
+  const epBody = document.getElementById('employeeProductivityBody');
+  epBody.innerHTML = bundle.byEmployee.length
+    ? bundle.byEmployee.map(e => `<tr><td><strong>${escapeHtml(e.name)}</strong></td><td>${e.total}</td><td>${e.solved}</td><td>${e.followup}</td><td>${e.open}</td><td>${e.resolutionRatePct}%</td></tr>`).join('')
+    : '<tr><td colspan="6" class="empty-note">لا توجد بيانات</td></tr>';
+
+  // E. Employee Ranking
+  const erBody = document.getElementById('employeeRankingBody');
+  erBody.innerHTML = bundle.byEmployee.length
+    ? bundle.byEmployee.map((e, i) => `<tr><td>${i + 1}${i === 0 ? ' 🏆' : ''}</td><td>${escapeHtml(e.name)}</td><td>${e.total}</td><td>${e.pctOfTotal}%</td><td>${e.resolutionRatePct}%</td></tr>`).join('')
+    : '<tr><td colspan="5" class="empty-note">لا توجد بيانات</td></tr>';
+  setText('topPerformerLabel', bundle.byEmployee.length ? `${bundle.byEmployee[0].name} (${bundle.byEmployee[0].total})` : '—');
+  setText('bestSolutionEmployeeLabel', bundle.bestEmployeeBySolution ? `${bundle.bestEmployeeBySolution.name} (${bundle.bestEmployeeBySolution.resolutionRatePct}%)` : '—');
+
+  // F. Problem Types
+  doughnut('chReportProblemTypes', bundle.byProblemType.map(p => p.name), bundle.byProblemType.map(p => p.total));
+  const ptBody = document.getElementById('problemTypesBody');
+  ptBody.innerHTML = bundle.byProblemType.length
+    ? bundle.byProblemType.map(p => `<tr><td>${escapeHtml(p.name)}</td><td>${p.total}</td><td>${p.pctOfTotal}%</td></tr>`).join('')
+    : '<tr><td colspan="3" class="empty-note">لا توجد بيانات</td></tr>';
+
+  // G. Problem Resolution
+  const prBody = document.getElementById('problemResolutionBody');
+  prBody.innerHTML = bundle.byProblemType.length
+    ? bundle.byProblemType.map(p => `<tr><td>${escapeHtml(p.name)}</td><td>${p.total}</td><td>${p.solved}</td><td>${p.followup}</td><td>${p.open}</td><td>${p.resolutionRatePct}%</td></tr>`).join('')
+    : '<tr><td colspan="6" class="empty-note">لا توجد بيانات</td></tr>';
+
+  // H. Branch Performance
+  const bpBody = document.getElementById('branchPerfReportBody');
+  bpBody.innerHTML = bundle.byBranch.length
+    ? bundle.byBranch.map(b => `<tr><td><strong>${escapeHtml(b.name)}</strong></td><td>${b.total}</td><td>${b.solved}</td><td>${b.followup}</td><td>${b.open}</td>
+        <td>${b.resolutionRatePct}% <span class="res-bar"><span style="width:${b.resolutionRatePct}%"></span></span></td></tr>`).join('')
+    : '<tr><td colspan="6" class="empty-note">لا توجد بيانات</td></tr>';
+  setText('reportBranchMost', bundle.topBranch ? `${bundle.topBranch.name} (${bundle.topBranch.total})` : '—');
+  setText('reportBranchBest', bundle.bestBranchBySolution ? `${bundle.bestBranchBySolution.name} (${bundle.bestBranchBySolution.resolutionRatePct}%)` : '—');
+  const needsAttention = bundle.byBranch.filter(b => b.resolutionRatePct < 50 && b.total > 0);
+  document.getElementById('reportBranchesNeedingAttention').textContent = needsAttention.length
+    ? `⚠️ ${needsAttention.length} فرع يحتاج متابعة (Solution % أقل من 50%)`
+    : '✅ كل الفروع فوق 50% Solution rate';
+
+  // Management Report preview
+  renderReportPreview(bundle);
+}
+
+function pctOf(n, d) { return d ? Math.round((n / d) * 1000) / 10 : 0; }
+
+function renderDailyStatusTable(dsb) {
+  const head = document.getElementById('dailyStatusHead');
+  const body = document.getElementById('dailyStatusBody');
+  const foot = document.getElementById('dailyStatusFoot');
+  if (!dsb || !dsb.rows) { head.innerHTML = '<th>التاريخ</th>'; body.innerHTML = ''; foot.innerHTML = ''; return; }
+
+  head.innerHTML = '<th>التاريخ</th>' + dsb.statusKeys.map(s => `<th>${escapeHtml(s)}</th>`).join('') + '<th>Grand Total</th>';
+  body.innerHTML = dsb.rows.length
+    ? dsb.rows.map(r => `<tr><td>${r.date}</td>` + dsb.statusKeys.map(s => `<td>${r.counts[s] || 0}</td>`).join('') + `<td><strong>${r.total}</strong></td></tr>`).join('')
+    : `<tr><td colspan="${dsb.statusKeys.length + 2}" class="empty-note">لا توجد بيانات</td></tr>`;
+  foot.innerHTML = '<td>Grand Total</td>' + dsb.statusKeys.map(s => `<td>${dsb.grandTotal.counts[s] || 0}</td>`).join('') + `<td>${dsb.grandTotal.total}</td>`;
+}
+
+function renderReportPreview(bundle) {
+  const k = bundle.kpis;
+  const f = getCurrentFilters();
+  const label = (v) => v || 'الكل';
+  const period = bundle.reportPeriod || { from: '', to: '' };
+  document.getElementById('reportPreviewBox').innerHTML = `
+    <div><strong>الفترة:</strong> ${period.from || '—'} → ${period.to || '—'}</div>
+    <div><strong>الفلاتر المطبّقة:</strong> الفرع: ${label(f.branch)} · الموظفة: ${label(f.employee)} · Account: ${label(f.account)} · المندوب: ${label(f.driver)} · نوع المشكلة: ${label(f.problemType)}</div>
+    <div><strong>إجمالى الشحنات:</strong> ${k.total} — <strong>تم الحل:</strong> ${k.solved} — <strong>جاري الحل:</strong> ${k.followup} — <strong>لم يتم الحل:</strong> ${k.open} — <strong>Solution %:</strong> ${k.resolutionRatePct}%</div>
+  `;
+}
+
+function exportManagementReportPdf() {
+  if (!lastReportsBundle) { alert('اضغطي "عرض الإحصائية" أولاً قبل تصدير التقرير.'); return; }
+  const btn = document.getElementById('exportPdfBtn');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '⏳ جاري إنشاء التقرير...';
+  google.script.run
+    .withSuccessHandler(res => {
+      const byteChars = atob(res.base64);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([new Uint8Array(byteNumbers)], { type: res.mimeType || 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = res.fileName || 'Fleet_Support_Report.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      btn.innerHTML = '✅ تم تصدير التقرير';
+      setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 1800);
+    })
+    .withFailureHandler(err => {
+      onLoadError(err);
+      btn.innerHTML = '⚠️ فشل التصدير — حاولي مجددًا';
+      setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 1800);
+    })
+    .getManagementReportPdf(getCurrentFilters());
 }
 
 function exportReportCSV() {
@@ -429,6 +560,7 @@ document.getElementById('branchCompareBtn').addEventListener('click', branchComp
 document.getElementById('employeeCompareBtn').addEventListener('click', employeeCompare);
 document.getElementById('showStatsBtn').addEventListener('click', showReportStats);
 document.getElementById('exportExcelBtn').addEventListener('click', exportReportCSV);
+document.getElementById('exportPdfBtn').addEventListener('click', exportManagementReportPdf);
 document.getElementById('printBtn').addEventListener('click', () => window.print());
 
 /* ---------------------------------------------------------------- */
