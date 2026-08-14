@@ -4,34 +4,37 @@
  * Entry point.
  *
  * ===========================  ARCHITECTURE  =========================
- * There is exactly ONE Dashboard in this project:
- *   Dashboard.html + Styles.html + Scripts.html
- *   (rendered server-side by doGet(), talking to the backend via
- *   google.script.run — no network/CORS layer, no URL to configure).
+ * There is exactly ONE Dashboard in this project: index.html.
  *
- * This is what every "/exec" hit returns. It is the version everyone
- * (including the Web App URL you hand out) should treat as THE app.
+ * doGet() renders index.html AS AN APPS SCRIPT TEMPLATE (not a static
+ * file), so the real, current deployment URL (ScriptApp.getService().
+ * getUrl()) is injected straight into the page every time it loads —
+ * see SERVER_API_URL near the top of index.html's <script>. This is
+ * what fixes the "stale deployment" symptom: index.html no longer
+ * depends on a hand-typed DEFAULT_API_URL that can drift out of date
+ * after a redeploy. It always calls itself.
  *
- * index.html is NOT part of this deployment and is never returned by
- * doGet(). It is kept only as an OPTIONAL, self-contained mirror with
- * the exact same UI/logic, meant for someone who wants to host a copy
- * outside script.google.com (e.g. on a static site) and have it talk
- * to this backend over fetch(). If you don't have that use case, you
- * can ignore index.html entirely — it plays no role in what /exec
- * serves. See the comment block at the top of index.html for details.
+ * index.html still works fine if copied out and hosted elsewhere as a
+ * plain static file (the template tag simply won't be there, and it
+ * falls back to DEFAULT_API_URL / the ⚙️ settings override) — but the
+ * canonical, supported deployment is: doGet() -> index.html, on this
+ * Web App's own /exec URL.
+ *
+ * Dashboard.html + Scripts.html are a legacy, functionally-equivalent
+ * copy of the same UI (used google.script.run instead of fetch). They
+ * are NOT served by doGet() and are not part of this deployment. Kept
+ * only so no history/functionality is lost; safe to ignore or delete
+ * once you've confirmed index.html covers everything you need.
  * ======================================================================
  *
- * - doGet() with no "action" param  -> serves Dashboard.html (the one
- *   and only Dashboard), using google.script.run internally.
+ * - doGet() with no "action" param  -> serves index.html (the one and
+ *   only Dashboard), with the live API URL injected server-side.
  * - doGet() with an "action" param  -> returns raw JSON only, never
- *   HTML. This is the same JSON API optionally used by index.html.
- * - All functions below are also directly callable from Scripts.html
- *   via google.script.run.<functionName>(...).
+ *   HTML. This is the JSON API index.html calls via fetch().
  *
- * IMPORTANT if you ever do use the standalone index.html: this Web
- * App must be deployed with "Who has access: Anyone" — otherwise
- * cross-origin fetch() calls from outside script.google.com will be
- * rejected.
+ * This Web App must be deployed with "Who has access: Anyone" so that
+ * fetch() calls (including from the page calling its own /exec URL)
+ * are never rejected.
  * ------------------------------------------------------------------
  */
 
@@ -42,8 +45,10 @@ function doGet(e) {
     return handleJsonAction_(params);
   }
 
-  return HtmlService.createTemplateFromFile('Dashboard')
-    .evaluate()
+  const tpl = HtmlService.createTemplateFromFile('index');
+  tpl.serverApiUrl = ScriptApp.getService().getUrl();
+
+  return tpl.evaluate()
     .setTitle('نظام متابعة Fleet Support — ARRIVE')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);

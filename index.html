@@ -1,21 +1,18 @@
 <!--
   ============================================================================
-  index.html — OPTIONAL standalone mirror. NOT the app's Dashboard.
+  index.html — THE Dashboard. This is what doGet() (Code.gs) serves at
+  your /exec URL, rendered as an Apps Script template so the current
+  deployment's own URL gets injected into SERVER_API_URL below — no
+  more hand-typed / stale API URL after a redeploy.
 
-  This file is never served by the Web App's doGet() (see Code.gs). The
-  ONE real Dashboard is Dashboard.html + Scripts.html, returned at your
-  /exec URL. This file exists only for the separate use case of hosting
-  a copy of the same UI *outside* script.google.com (a static site, a
-  local double-clicked file, etc.), talking to the same backend purely
-  over fetch() against the JSON API (doGet with ?action=...).
+  It also still works if copied out and opened as a plain static file
+  or hosted elsewhere: with no template engine to fill SERVER_API_URL,
+  it just falls back to DEFAULT_API_URL (or the ⚙️ settings override),
+  same as before.
 
-  If you don't need that, ignore this file — editing it has no effect
-  on what your Web App URL shows. If you do use it, remember: unlike
-  Dashboard.html (which always calls the backend it's literally running
-  inside of), this file points at a hardcoded DEFAULT_API_URL below,
-  overridable via the ⚙️ settings button. Always double check that URL
-  after redeploying — see the "Deployment" note in the project README/
-  chat instructions for how deployments and their /exec URL work.
+  Dashboard.html + Scripts.html are a legacy, feature-equivalent copy
+  (google.script.run instead of fetch) kept only for history. They are
+  NOT served by doGet() and are not part of this deployment.
   ============================================================================
 -->
 <!DOCTYPE html>
@@ -567,9 +564,21 @@
    Web App's JSON API (Code.gs -> handleJsonAction_).
    ================================================================== */
 
-// ---- Default API URL (your real deployed Web App) — override anytime via ⚙️ ----
+// ---- API URL resolution -------------------------------------------------
+// 1) SERVER_API_URL: injected fresh on every page load by doGet() (Code.gs)
+//    via ScriptApp.getService().getUrl() — this is ALWAYS this exact
+//    deployment's real /exec URL. Present only when served through Apps
+//    Script (i.e. this is the normal, supported case).
+// 2) DEFAULT_API_URL: fallback used only if this file is opened as a
+//    plain static file / hosted elsewhere, where step 1 can't happen.
+// 3) localStorage override via the ⚙️ settings button always wins, for
+//    anyone who deliberately wants to point at a different deployment.
+const RAW_SERVER_API_URL = "<?!= serverApiUrl ? serverApiUrl : '' ?>";
+// Guard against the scriptlet tag showing up literally (happens only when
+// this file is opened as a static file, where nothing evaluates it).
+const SERVER_API_URL = RAW_SERVER_API_URL.indexOf('https://') === 0 ? RAW_SERVER_API_URL : '';
 const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycby1kE988N8TAwORXRPcnxZ_Z64GRrksri161Be5FhkLvCHytlCJVZaDkEs0K1twYLM3/exec";
-let currentApiUrl = localStorage.getItem('fleetSupportApiUrl') || DEFAULT_API_URL;
+let currentApiUrl = localStorage.getItem('fleetSupportApiUrl') || SERVER_API_URL || DEFAULT_API_URL;
 
 Chart.defaults.font.family = "Tajawal, sans-serif";
 Chart.defaults.font.size = 11;
@@ -581,9 +590,49 @@ let lastOpenCases = [];
 let lastReportsBundle = null;
 
 /* ---------------------------------------------------------------- */
-/* API layer (fetch-based, replaces google.script.run)                */
+/* API layer — google.script.run when served by Apps Script itself   */
+/* (fast, no HTTP round trip), fetch() only as a fallback for a      */
+/* copy of this file hosted/opened outside Apps Script.               */
 /* ---------------------------------------------------------------- */
-async function apiCall(action, params) {
+
+// Maps the "action" name used throughout this file to the actual
+// server-side function name + how to build its argument list.
+const GAS_RUN_MAP = {
+  kpis:                  filters => ['getKPIs', [filters]],
+  branchPerformance:     filters => ['getBranchPerformance', [filters]],
+  employeePerformance:   filters => ['getEmployeePerformance', [filters]],
+  accountBreakdown:      filters => ['getAccountBreakdown', [filters]],
+  problemTypeBreakdown:  filters => ['getProblemTypeBreakdown', [filters]],
+  dailyTrend:            filters => ['getDailyTrend', [filters]],
+  openCases:             filters => ['getOpenCases', [filters]],
+  filterOptions:         ()      => ['getFilterOptions', []],
+  reportsBundle:         filters => ['getReportsBundle', [filters]],
+  dailyStatusBreakdown:  filters => ['getDailyStatusBreakdown', [filters]],
+  managementReportPdf:   filters => ['getManagementReportPdf', [filters]],
+  fullAppData:           filters => ['getFullAppData', [filters]],
+  refresh:               filters => ['refreshAndGetFullAppData', [filters]],
+  monthComparison:       filters => ['getMonthComparison', [filters.field || 'branch', filters.monthA, filters.monthB, filters]]
+};
+
+const HAS_GAS_RUN = typeof google !== 'undefined' && !!(google.script && google.script.run);
+
+function apiCall(action, params) {
+  return HAS_GAS_RUN ? apiCallViaGasRun(action, params) : apiCallViaFetch(action, params);
+}
+
+function apiCallViaGasRun(action, params) {
+  return new Promise((resolve, reject) => {
+    const mapper = GAS_RUN_MAP[action];
+    if (!mapper) { reject(new Error('Unknown action: ' + action)); return; }
+    const [fnName, args] = mapper(params || {});
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(err => reject(new Error((err && err.message) || 'حدث خطأ فى السيرفر')))
+      [fnName].apply(null, args);
+  });
+}
+
+async function apiCallViaFetch(action, params) {
   const url = new URL(currentApiUrl);
   url.searchParams.set('action', action);
   Object.entries(params || {}).forEach(([k, v]) => { if (v) url.searchParams.set(k, v); });
@@ -632,13 +681,16 @@ function setConnected(ok, message) {
   if (!ok) {
     banner.style.display = '';
     banner.className = 'note-banner error';
-    banner.textContent = '🔴 ' + (message || 'تعذّر الاتصال') + ' — الرابط الحالى: ' + currentApiUrl + ' — اضغطي هنا لفتح إعدادات رابط الـ API';
-    banner.onclick = openSettings;
+    banner.textContent = '🔴 ' + (message || 'تعذّر الاتصال') +
+      (HAS_GAS_RUN ? '' : ' — الرابط الحالى: ' + currentApiUrl + ' — اضغطي هنا لفتح إعدادات رابط الـ API');
+    banner.onclick = HAS_GAS_RUN ? null : openSettings;
   } else {
     banner.style.display = 'none';
     banner.className = 'note-banner';
-    banner.textContent = '🟢 نسخة مستقلة (index.html) — متصلة بـ: ' + currentApiUrl;
-    banner.onclick = openSettings;
+    banner.textContent = HAS_GAS_RUN
+      ? '🟢 متصلة مباشرة (google.script.run)'
+      : (SERVER_API_URL ? '🟢 متصلة تلقائيًا بنفس الديبلويمنت — ' : '🟢 متصلة بـ: ') + currentApiUrl;
+    banner.onclick = HAS_GAS_RUN ? null : openSettings;
   }
 }
 
