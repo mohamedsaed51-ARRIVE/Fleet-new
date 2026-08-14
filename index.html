@@ -635,7 +635,7 @@ function setConnected(ok, message) {
     banner.textContent = '🔴 ' + (message || 'تعذّر الاتصال') + ' — الرابط الحالى: ' + currentApiUrl + ' — اضغطي هنا لفتح إعدادات رابط الـ API';
     banner.onclick = openSettings;
   } else {
-    banner.style.display = '';
+    banner.style.display = 'none';
     banner.className = 'note-banner';
     banner.textContent = '🟢 نسخة مستقلة (index.html) — متصلة بـ: ' + currentApiUrl;
     banner.onclick = openSettings;
