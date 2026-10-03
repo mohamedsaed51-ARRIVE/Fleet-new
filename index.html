@@ -44,8 +44,8 @@
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800&family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" media="print" onload="this.media='all'">
 
 <style id="arrive-tokens">
 :root{
@@ -599,7 +599,7 @@ a:hover{text-decoration:underline}
 }
 </style>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script id="chartjs" async src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body class="is-loading">
 
@@ -1229,7 +1229,8 @@ const CenterText = {
 };
 
 let chartInstances = {};
-function destroyChart(id) { if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; } }
+function destroyChart(id) {
+  if (!window.Chart) return; if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; } }
 function tooltipOpts(extra) {
   return Object.assign({
     rtl: true, textDirection: 'rtl', titleAlign: 'right', bodyAlign: 'right', backgroundColor: P.navy, padding: 10, cornerRadius: 6, boxPadding: 4,
@@ -1266,6 +1267,7 @@ function topNote(noteId, shown, total) {
  */
 function bar(id, labels, data, o) {
   o = o || {};
+  if (!chartOK()) return;
   destroyChart(id);
   const empty = !data.length;
   toggleEmpty(id, empty);
@@ -1294,6 +1296,7 @@ function bar(id, labels, data, o) {
   });
 }
 function groupedBar(id, labels, d1, d2, l1, l2) {
+  if (!chartOK()) return;
   destroyChart(id);
   const empty = !labels.length; toggleEmpty(id, empty); if (empty) return;
   chartInstances[id] = new Chart($(id), {
@@ -1314,6 +1317,7 @@ function groupedBar(id, labels, d1, d2, l1, l2) {
 /** Line: السلاسل الزمنية استثناء موثّق — الزمن من اليسار (الأقدم) إلى اليمين (الأحدث) وتُوسَم آخر قيمة. */
 function line(id, labels, data, o) {
   o = o || {};
+  if (!chartOK()) return;
   destroyChart(id);
   const empty = !data.length; toggleEmpty(id, empty); if (empty) return;
   chartInstances[id] = new Chart($(id), {
@@ -1338,6 +1342,7 @@ function renderStatusDonut(hostId, k, canvasId) {
   const sum = items.reduce((s, i) => s + i.n, 0);
   destroyChart(canvasId);
   if (!k.total || !sum) { host.innerHTML = emptyHTML(); return; }
+  if (!chartOK()) { host.innerHTML = ''; return; }
   host.innerHTML = '<div class="ar-donut"><div class="cv"><canvas id="' + canvasId + '"></canvas></div><ul class="ar-legend">' +
     items.map(i => '<li><span class="sw" style="background:' + i.color + '"></span><span class="t">' + BUCKET[i.key].label + '</span><span class="v">' + fInt(i.n) + '</span><span class="p">' + fPct(pctOf(i.n, k.total)) + '</span></li>').join('') + '</ul></div>';
   chartInstances[canvasId] = new Chart($(canvasId), {
@@ -1354,6 +1359,15 @@ function renderStatusDonut(hostId, k, canvasId) {
 /* ================================================================== */
 /* D) STATE + PAGES                                                    */
 /* ================================================================== */
+// Chart.js يُحمَّل async: لا نحجب الصفحة ولا طلب البيانات بانتظاره. لو فشل تحميله تظهر الجداول والكروت بدون رسوم.
+const chartReady = new Promise(res => {
+  if (window.Chart) return res();
+  const el = document.getElementById('chartjs');
+  if (!el) return res();
+  el.addEventListener('load', () => res()); el.addEventListener('error', () => res());
+});
+let chartsSkipped = false;
+function chartOK() { if (window.Chart && P.blue) return true; chartsSkipped = true; return false; }
 const state = { data: null, applied: {}, bundle: null, bundleFilters: null };
 let grids = {};
 
@@ -1402,8 +1416,9 @@ function closeSettings() { $('settingsModal').classList.remove('is-open'); }
 async function loadAll() {
   setLoading(true);
   try {
-    const data = await apiCall('fullAppData', getCurrentFilters());
-    state.applied = getCurrentFilters();
+    const f = getCurrentFilters();
+    const data = await apiCall('fullAppData', f);   // الطلب يبدأ فورًا بالتوازي مع تحميل Chart.js
+    state.applied = f;
     onFullAppData(data);
     setConnected(true);
   } catch (err) {
@@ -1950,11 +1965,14 @@ function boot() {
     if (LOGO_URI) img.src = LOGO_URI;
     else img.replaceWith(Object.assign(document.createElement('span'), { className: 'ar-brand-fallback', textContent: 'ARRIVE' }));
   });
-  initPalette();
-  Chart.register(ValueLabels, TargetLine, CenterText);
   initGrids();
   wireEvents();
   loadAll();
+  chartReady.then(() => {
+    if (!window.Chart) return;
+    initPalette(); Chart.register(ValueLabels, TargetLine, CenterText);
+    if (chartsSkipped && state.data) { chartsSkipped = false; onFullAppData(state.data); }
+  });
 }
 boot();
 

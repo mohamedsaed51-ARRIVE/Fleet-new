@@ -18,7 +18,19 @@
  * Cached briefly to avoid re-reading the sheet on every widget call
  * during a single dashboard load.
  */
+/**
+ * أداء فقط (لا يغيّر أي نتيجة): getFullAppData تستدعي ~8 دوال وكلٌّ منها كانت تعيد قراءة الشيت كاملًا،
+ * لأن الكاش يتجاوز حد 90KB مع بيانات حقيقية. نحتفظ بالنتيجة في متغير داخل نفس التنفيذ فقط
+ * (كل تنفيذ Apps Script يبدأ بمتغيرات فارغة)، فتُقرأ الورقة مرة واحدة لكل طلب.
+ */
+var RECORDS_MEMO_ = null;
 function getNormalizedRecords_() {
+  if (RECORDS_MEMO_) return RECORDS_MEMO_;
+  RECORDS_MEMO_ = readNormalizedRecords_();
+  return RECORDS_MEMO_;
+}
+
+function readNormalizedRecords_() {
   const cache = CacheService.getScriptCache();
   const cached = cache.get('normalized_records_v1');
   if (cached) {
@@ -118,6 +130,7 @@ function formatTimestamp_(recordId) {
 
 /** Clears the cached records — call after any Master Data edit if needed. */
 function clearDataCache() {
+  RECORDS_MEMO_ = null;
   CacheService.getScriptCache().remove('normalized_records_v1');
   return { cleared: true };
 }
