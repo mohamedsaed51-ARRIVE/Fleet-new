@@ -1,38 +1,40 @@
 /**
  * Reports.gs
  * ------------------------------------------------------------------
- * "تقرير الإدارة" — Management Report PDF export for the التقارير page.
+ * "تقرير الإدارة" — تصدير PDF من السيرفر لصفحة التقارير.
  *
- * IMPORTANT: this renders a real PDF server-side via Apps Script's
- * HtmlService → getAs('application/pdf') conversion — it is NOT a
- * screenshot of the page (no html2canvas anywhere in this file).
- * The client (index.html / Scripts.html) calls getManagementReportPdf(),
- * gets back { fileName, base64, mimeType }, and downloads it as a Blob.
+ * يُنتج PDF حقيقيًا عبر HtmlService → getAs('application/pdf'). هذا المحوّل قديم:
+ * لا يدعم flex ولا متغيرات CSS ولا خطوطًا خارجية، لذلك التصميم هنا مبني على
+ * جداول وألوان صريحة (hex) منقولة حرفيًا من DesignSystem.html (كتلة :root).
+ * التقرير التفاعلي/المطبوع من المتصفح (صفحة التقارير ← طباعة) هو النسخة عالية الدقة.
+ *
+ * منطق الأرقام لم يتغير: getReportsBundle(filters) هو المصدر الوحيد للبيانات.
  * ------------------------------------------------------------------
  */
 
-/** Public entry point — called from Code.gs (index.html/fetch flow) and directly via google.script.run (Dashboard.html flow). */
+/** ألوان الهوية — نسخة صريحة من tokens في DesignSystem.html (يتحقق منها اختبار التطابق). */
+var RPT_TOKENS_ = {
+  blue: '#0837C9', blue800: '#05237F', teal: '#00C7E6', navy: '#0F172A', light: '#E6F4FF', gray: '#64748B',
+  g50: '#F8FAFC', g100: '#F1F5F9', g200: '#E2E8F0', g300: '#CBD5E1',
+  success: '#22C55E', successBg: '#DCFCE7', successFg: '#15803D',
+  warn: '#F59E0B', warnBg: '#FEF3C7', warnFg: '#B45309',
+  bad: '#EF4444', badBg: '#FEE2E2', badFg: '#B91C1C'
+};
+
+/** Public entry point — called from Code.gs (index.html/fetch flow) and directly via google.script.run. */
 function getManagementReportPdf(filters) {
   filters = filters || {};
   try {
     const bundle = getReportsBundle(filters);
-    const filterOptions = getFilterOptions();
-
     const fileName = buildReportFileName_(filters);
-    const html = buildManagementReportHtml_(bundle, filters, filterOptions);
+    const html = buildManagementReportHtml_(bundle, filters);
 
     const pdfBlob = HtmlService.createHtmlOutput(html).getAs('application/pdf').setName(fileName);
     const base64 = Utilities.base64Encode(pdfBlob.getBytes());
-
-    if (!base64) {
-      throw new Error('فشل إنشاء ملف PDF — الناتج فارغ.');
-    }
+    if (!base64) throw new Error('فشل إنشاء ملف PDF — الناتج فارغ.');
 
     return { fileName: fileName, base64: base64, mimeType: 'application/pdf' };
   } catch (error) {
-    // Logged server-side (visible in Apps Script "Executions" log) so the
-    // real cause is never silent for the developer, even though the user
-    // only ever sees the friendly Arabic message below.
     console.error('Management Report Export Error:', error);
     throw new Error('حدث خطأ أثناء إنشاء التقرير، برجاء المحاولة مرة أخرى. (' + (error && error.message ? error.message : error) + ')');
   }
@@ -54,169 +56,158 @@ function filterLabel_(value) { return (value && String(value).trim()) ? String(v
 
 function statusBucketLabel_(bucket) {
   if (!bucket) return 'الكل';
-  const labels = { SOLVED: 'تم الحل', FOLLOWUP: 'قيد المتابعة', OPEN: 'لم يتم الحل' };
-  return labels[bucket] || bucket;
+  return CONFIG.BUCKET_LABELS[bucket] || bucket;
 }
 
-function buildManagementReportHtml_(bundle, filters, filterOptions) {
+/** الملاحظات: مستخرجة من أرقام الـ bundle فقط — لا حقول مخمَّنة. */
+function deriveReportFindings_(bundle) {
+  const k = bundle.kpis, out = [];
+  const thr = CONFIG.REPORT.ATTENTION_RESOLUTION_PCT;
+  if (k.open > 0) out.push({ title: 'حالات لم يتم حلها', evidence: k.open + ' حالة من أصل ' + k.total + ' (' + pct_(k.open, k.total) + '%).', impact: k.open + ' حالة ما زالت مفتوحة دون حل ضمن الفترة.' });
+  if (k.followup > 0) out.push({ title: 'حالات قيد المتابعة', evidence: k.followup + ' حالة (' + pct_(k.followup, k.total) + '% من الإجمالي).', impact: 'تحتاج متابعة حتى الإغلاق.' });
+  const low = bundle.byBranch.filter(function (b) { return b.total > 0 && b.resolutionRatePct < thr; })
+    .sort(function (a, b) { return a.resolutionRatePct - b.resolutionRatePct; });
+  if (low.length) {
+    let pending = 0;
+    low.forEach(function (b) { pending += b.followup + b.open; });
+    out.push({
+      title: 'فروع نسبة الحل فيها أقل من ' + thr + '%',
+      evidence: low.map(function (b) { return b.name + ' (' + b.resolutionRatePct + '% — ' + b.solved + ' من ' + b.total + ')'; }).join('، ') + '.',
+      impact: 'الحالات غير المحلولة (قيد المتابعة + لم يتم الحل) في هذه الفروع: ' + pending + ' حالة.'
+    });
+  }
+  if (k.unknownStatus > 0) out.push({ title: 'حالات بقيمة حالة غير مصنفة', evidence: k.unknownStatus + ' سجل بقيمة حالة غير مدرجة في الفئات الثلاث.', impact: 'تُحتسب في الإجمالي ولا تدخل في أي فئة.' });
+  if (k.invalidDateRowCount > 0) out.push({ title: 'سجلات بتاريخ غير صالح', evidence: k.invalidDateRowCount + ' سجل في Master Data (إجمالي الورقة وليس بعد الفلاتر).', impact: 'تُستبعد من الاتجاه اليومي وأي فلتر تاريخ.' });
+  return out;
+}
+
+function buildManagementReportHtml_(bundle, filters) {
+  const T = RPT_TOKENS_;
   const k = bundle.kpis;
   const period = bundle.reportPeriod || { from: '', to: '' };
+  const periodTxt = (period.from || period.to) ? ('من ' + ltr_(period.from || '—') + ' إلى ' + ltr_(period.to || '—')) : 'غير محدد بالمصدر';
   const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const thr = CONFIG.REPORT.ATTENTION_RESOLUTION_PCT;
+  const logo = getLogoDataUri_();
+  const logoImg = logo ? '<img src="' + logo + '" height="34" alt="ARRIVE">' : '<b style="color:#fff;font-size:20px">ARRIVE</b>';
+  const findings = deriveReportFindings_(bundle);
+  const MISSING = 'غير محدد بالمصدر';
 
-  const appliedFiltersRows = [
-    ['الفرع', filterLabel_(filters.branch)],
-    ['الموظفة', filterLabel_(filters.employee)],
-    ['Account', filterLabel_(filters.account)],
-    ['المندوب', filterLabel_(filters.driver)],
-    ['نوع المشكلة', filterLabel_(filters.problemType)],
-    ['حالة الشحنة', statusBucketLabel_(filters.statusBucket)]
-  ];
+  const css = [
+    '@page { size: A4; margin: 14mm 12mm; }',
+    'body { font-family: Cairo, Arial, sans-serif; direction: rtl; color: ' + T.navy + '; font-size: 11px; margin: 0; }',
+    'table { width: 100%; border-collapse: collapse; }',
+    '.cover td { background: ' + T.blue + '; color: #fff; }',
+    '.sec { font-size: 15px; font-weight: bold; color: ' + T.blue800 + '; border-right: 5px solid ' + T.blue + '; padding: 2px 10px; margin: 18px 0 8px; page-break-after: avoid; }',
+    '.sub { font-size: 12px; font-weight: bold; color: ' + T.navy + '; margin: 12px 0 5px; page-break-after: avoid; }',
+    '.kpi td { width: 25%; border: 1px solid ' + T.g200 + '; background: #fff; padding: 8px 10px; vertical-align: top; }',
+    '.kpi .l { font-size: 10px; color: ' + T.gray + '; }',
+    '.kpi .v { font-size: 20px; font-weight: bold; color: ' + T.blue + '; }',
+    '.kpi .s { font-size: 9px; color: ' + T.gray + '; }',
+    '.dt th { background: ' + T.blue + '; color: #fff; padding: 6px 7px; font-size: 10px; border: 1px solid ' + T.blue + '; text-align: center; }',
+    '.dt td { padding: 5px 7px; border: 1px solid ' + T.g200 + '; text-align: center; font-size: 10px; }',
+    '.dt tr { page-break-inside: avoid; }',
+    '.dt td.n { text-align: right; font-weight: bold; }',
+    '.dt tr.z td { background: ' + T.g50 + '; }',
+    '.dt tr.sum td { background: ' + T.light + '; font-weight: bold; border-top: 2px solid ' + T.blue + '; }',
+    '.call { background: ' + T.light + '; border-right: 4px solid ' + T.blue + '; padding: 8px 12px; margin: 8px 0; font-size: 11px; }',
+    '.miss { color: ' + T.gray + '; font-style: italic; }',
+    '.ok { color: ' + T.successFg + '; font-weight: bold; } .bad { color: ' + T.badFg + '; font-weight: bold; } .mid { color: ' + T.warnFg + '; font-weight: bold; }',
+    '.foot { font-size: 9px; color: ' + T.gray + '; border-top: 1px solid ' + T.g200 + '; padding-top: 5px; margin-top: 14px; }',
+    '.num { direction: ltr; unicode-bidi: embed; }'
+  ].join('\n');
 
-  const css = `
-    * { box-sizing: border-box; }
-    body { font-family: 'Tajawal', Arial, sans-serif; direction: rtl; color: #1a2233; font-size: 12px; padding: 24px 32px; }
-    h1,h2,h3 { margin: 0; }
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #2E86DE; padding-bottom: 12px; margin-bottom: 16px; }
-    .brand { font-size: 20px; font-weight: 900; color: #2E86DE; }
-    .brand-sub { font-size: 11px; color: #6b7686; }
-    .report-title { text-align: center; margin: 6px 0 18px; }
-    .report-title h2 { font-size: 18px; font-weight: 900; }
-    .report-title .sub { font-size: 12px; color: #6b7686; margin-top: 4px; }
-    .meta-grid { display: flex; gap: 16px; margin-bottom: 18px; }
-    .meta-box { flex: 1; border: 1px solid #e3e7ee; border-radius: 8px; padding: 10px 12px; background: #f8fafc; }
-    .meta-box .t { font-size: 10.5px; color: #6b7686; margin-bottom: 4px; }
-    .meta-box .v { font-size: 12.5px; font-weight: 700; }
-    .section { margin: 20px 0 10px; font-size: 14px; font-weight: 800; color: #1a2233; border-right: 4px solid #2E86DE; padding-right: 8px; page-break-after: avoid; }
-    .kpi-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
-    .kpi-box { flex: 1; min-width: 100px; border: 1px solid #e3e7ee; border-radius: 8px; padding: 8px 10px; text-align: center; }
-    .kpi-box .v { font-size: 16px; font-weight: 900; color: #2E86DE; }
-    .kpi-box .l { font-size: 10px; color: #6b7686; margin-top: 2px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
-    th, td { border: 1px solid #e3e7ee; padding: 5px 7px; font-size: 10.5px; text-align: center; }
-    th { background: #f1f5fb; font-weight: 800; }
-    td:first-child, th:first-child { text-align: right; }
-    .bar-wrap { background: #eef1f6; border-radius: 4px; height: 8px; width: 90px; display: inline-block; overflow: hidden; }
-    .bar-fill { background: #1FA971; height: 8px; }
-    .badge-good { color: #1FA971; font-weight: 800; }
-    .badge-bad { color: #E5484D; font-weight: 800; }
-    .footer { position: fixed; bottom: 0; left: 0; right: 0; font-size: 9.5px; color: #98a2b3; border-top: 1px solid #e3e7ee; padding-top: 6px; display: flex; justify-content: space-between; }
-    .page-num:after { content: counter(page); }
-  `;
+  function kpiCell(label, value, sub) {
+    return '<td><div class="l">' + label + '</div><div class="v">' + value + '</div><div class="s">' + (sub || '&nbsp;') + '</div></td>';
+  }
+  function share(n) { return pct_(n, k.total) + '% من الإجمالي'; }
+  function rateCell(v) { const c = v >= 80 ? 'ok' : (v < thr ? 'bad' : 'mid'); return '<span class="' + c + ' num">' + v + '%</span>'; }
+  function table(heads, rows, sumRow) {
+    if (!rows.length) return '<div class="call">لا توجد بيانات في الفترة المحددة.</div>';
+    return '<table class="dt"><thead><tr>' + heads.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function (r, i) { return '<tr' + (i % 2 ? ' class="z"' : '') + '>' + r.map(function (c, j) { return '<td' + (j === 0 ? ' class="n"' : '') + '>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody>' +
+      (sumRow ? '<tfoot><tr class="sum">' + sumRow.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr></tfoot>' : '') + '</table>';
+  }
+  function sum(rows, key) { let s = 0; rows.forEach(function (r) { s += r[key] || 0; }); return s; }
+  const perfHeads = function (a, b) { return [a, b, 'تم الحل', 'قيد المتابعة', 'لم يتم الحل', 'نسبة الحل']; };
+  const perfRow = function (r) { return [escapeHtml_(r.name), ltr_(r.total), ltr_(r.solved), ltr_(r.followup), ltr_(r.open), rateCell(r.resolutionRatePct)]; };
+  const perfSum = function (rows) { const t = sum(rows, 'total'), s = sum(rows, 'solved'); return ['الإجمالي', ltr_(t), ltr_(s), ltr_(sum(rows, 'followup')), ltr_(sum(rows, 'open')), '<span class="num">' + pct_(s, t) + '%</span>']; };
 
-  const kpiRow = `
-    <div class="kpi-row">
-      ${kpiBox_(k.total, 'إجمالى الشحنات')}
-      ${kpiBox_(k.total, 'إجمالى المشاكل')}
-      ${kpiBox_(k.solved, 'تم الحل')}
-      ${kpiBox_(k.followup, 'جاري الحل')}
-      ${kpiBox_(k.open, 'لم يتم الحل')}
-      ${kpiBox_(k.resolutionRatePct + '%', 'Solution %')}
-      ${kpiBox_(k.branchCount, 'عدد الفروع')}
-      ${kpiBox_(k.employeeCount, 'عدد الموظفات')}
-    </div>
-    <div class="kpi-row">
-      ${kpiBox_(bundle.topProblemType ? bundle.topProblemType.name : '—', 'أكثر نوع مشكلة')}
-      ${kpiBox_(bundle.topBranch ? bundle.topBranch.name : '—', 'أكثر فرع لديه مشاكل')}
-      ${kpiBox_(bundle.bestEmployeeBySolution ? bundle.bestEmployeeBySolution.name : '—', 'أفضل موظفة إنتاجية')}
-      ${kpiBox_(bundle.bestBranchBySolution ? bundle.bestBranchBySolution.name + ' (' + bundle.bestBranchBySolution.resolutionRatePct + '%)' : '—', 'أفضل فرع Solution %')}
-    </div>
-  `;
+  let html = '<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><style>' + css + '</style></head><body>';
 
-  const dailyRows = bundle.dailyTrend.map(d => {
-    const solvedPct = pct_(d.solved, d.total), followupPct = pct_(d.followup, d.total), openPct = pct_(d.open, d.total);
-    return `<tr><td>${d.date}</td><td>${d.total}</td><td>${d.solved} (${solvedPct}%)</td><td>${d.followup} (${followupPct}%)</td><td>${d.open} (${openPct}%)</td></tr>`;
-  }).join('');
+  // الغلاف
+  html += '<table class="cover" style="height:250mm"><tr><td style="padding:22px 28px;height:40px">' + logoImg + '</td></tr>' +
+    '<tr><td style="padding:0 28px;vertical-align:middle"><div style="color:' + T.teal + ';font-size:13px;font-weight:bold">تقرير الإدارة</div>' +
+    '<div style="font-size:30px;font-weight:bold;margin:8px 0">متابعة المشاكل وأداء الفروع<br>Fleet Support</div>' +
+    '<div style="font-size:14px">الفترة: ' + periodTxt + '</div></td></tr>' +
+    '<tr><td style="padding:18px 28px;font-size:11px"><table><tr>' +
+    '<td style="color:#fff">القسم<br><b>Fleet Support</b></td><td style="color:#fff">تاريخ الإصدار<br><b class="num">' + today + '</b></td>' +
+    '<td style="color:#fff">أُعدّ بواسطة<br><b>لوحة متابعة Fleet Support</b></td><td style="color:#fff">عدد السجلات<br><b class="num">' + k.total + '</b></td></tr></table></td></tr></table>';
+  html += '<div style="page-break-after:always"></div>';
 
-  const empRows = bundle.byEmployee.map(e =>
-    `<tr><td>${escapeHtml_(e.name)}</td><td>${e.total}</td><td>${e.solved}</td><td>${e.followup}</td><td>${e.open}</td><td>${e.resolutionRatePct}%</td></tr>`
-  ).join('');
+  // 01 الملخص التنفيذي
+  html += '<div class="sec">01 · الملخص التنفيذي</div>';
+  html += '<table class="dt" style="margin-bottom:8px"><tbody>' + [
+    ['الفرع', filterLabel_(filters.branch)], ['الموظفة', filterLabel_(filters.employee)], ['Account', filterLabel_(filters.account)],
+    ['المندوب', filterLabel_(filters.driver)], ['نوع المشكلة', filterLabel_(filters.problemType)], ['حالة الشحنة', statusBucketLabel_(filters.statusBucket)]
+  ].map(function (r) { return '<tr><td class="n" style="width:22%;background:' + T.g50 + '">' + r[0] + '</td><td>' + escapeHtml_(r[1]) + '</td></tr>'; }).join('') + '</tbody></table>';
+  if (!k.total) {
+    html += '<div class="call">لا توجد بيانات متاحة وفقًا للفلاتر المحددة.</div>';
+  } else {
+    const lowN = bundle.byBranch.filter(function (b) { return b.total > 0 && b.resolutionRatePct < thr; }).length;
+    html += '<div class="call">خلال الفترة ' + periodTxt + ' سُجّلت ' + ltr_(k.total) + ' حالة، تم حل ' + ltr_(k.solved) + ' منها بنسبة ' + ltr_(k.resolutionRatePct + '%') +
+      '. يوجد ' + ltr_(k.open) + ' حالة لم يتم حلها و' + ltr_(k.followup) + ' قيد المتابعة، و' + ltr_(lowN) + ' فرع نسبة الحل فيه أقل من ' + thr + '%.</div>';
+    html += '<table class="kpi"><tr>' + kpiCell('إجمالي المشاكل', ltr_(k.total)) + kpiCell('نسبة الحل', ltr_(k.resolutionRatePct + '%'), 'تم الحل ÷ الإجمالي') +
+      kpiCell('لم يتم الحل', '<span style="color:' + T.badFg + '">' + ltr_(k.open) + '</span>', share(k.open)) + kpiCell('قيد المتابعة', '<span style="color:' + T.warnFg + '">' + ltr_(k.followup) + '</span>', share(k.followup)) + '</tr></table>';
+    html += '<table class="kpi"><tr>' + kpiCell('تم الحل', '<span style="color:' + T.successFg + '">' + ltr_(k.solved) + '</span>', share(k.solved)) + kpiCell('عدد الفروع', ltr_(k.branchCount)) + kpiCell('عدد الموظفات', ltr_(k.employeeCount)) + kpiCell('عدد Accounts', ltr_(k.accountCount)) + '</tr></table>';
 
-  const rankRows = bundle.byEmployee.map((e, i) =>
-    `<tr><td>${i + 1}${i === 0 ? ' 🏆' : ''}</td><td>${escapeHtml_(e.name)}</td><td>${e.total}</td><td>${e.pctOfTotal}%</td><td>${e.resolutionRatePct}%</td></tr>`
-  ).join('');
+    // 02 مؤشرات
+    html += '<div class="sec">02 · مؤشرات الأداء</div>';
+    const bestB = bundle.bestBranchBySolution, bestE = bundle.bestEmployeeBySolution;
+    html += table(['المؤشر', 'القيمة'], [
+      ['أكثر فرع به مشاكل', bundle.topBranch ? escapeHtml_(bundle.topBranch.name) + ' — ' + ltr_(bundle.topBranch.total) + ' حالة' : '—'],
+      ['أكثر نوع مشكلة', bundle.topProblemType ? escapeHtml_(bundle.topProblemType.name) + ' — ' + ltr_(bundle.topProblemType.total) + ' حالة' : '—'],
+      ['أفضل فرع في نسبة الحل', bestB ? escapeHtml_(bestB.name) + ' — ' + ltr_(bestB.resolutionRatePct + '%') : '—'],
+      ['أفضل موظفة في نسبة الحل', bestE ? escapeHtml_(bestE.name) + ' — ' + ltr_(bestE.resolutionRatePct + '%') : '—']
+    ]);
 
-  const probRows = bundle.byProblemType.map(p =>
-    `<tr><td>${escapeHtml_(p.name)}</td><td>${p.total}</td><td>${p.pctOfTotal}%</td></tr>`
-  ).join('');
+    // 03 التحليل
+    html += '<div class="sec">03 · التحليل التفصيلي</div><div class="sub">الأداء اليومي</div>';
+    html += table(['التاريخ', 'إجمالي المشاكل', 'تم الحل', 'قيد المتابعة', 'لم يتم الحل'], bundle.dailyTrend.map(function (d) {
+      return [ltr_(d.date), ltr_(d.total), ltr_(d.solved) + ' (' + pct_(d.solved, d.total) + '%)', ltr_(d.followup) + ' (' + pct_(d.followup, d.total) + '%)', ltr_(d.open) + ' (' + pct_(d.open, d.total) + '%)'];
+    }), bundle.dailyTrend.length ? ['الإجمالي', ltr_(sum(bundle.dailyTrend, 'total')), ltr_(sum(bundle.dailyTrend, 'solved')), ltr_(sum(bundle.dailyTrend, 'followup')), ltr_(sum(bundle.dailyTrend, 'open'))] : null);
+    if (bundle.dailyTrend.length && sum(bundle.dailyTrend, 'total') !== k.total) html += '<div class="call">مجموع الجدول اليومي ' + sum(bundle.dailyTrend, 'total') + ' من أصل ' + k.total + ' حالة: الفرق سجلات بلا تاريخ صالح تُستبعد من الجداول اليومية.</div>';
+    html += '<div class="sub">أداء الفروع</div>' + table(perfHeads('الفرع', 'إجمالي المشاكل'), bundle.byBranch.map(perfRow), bundle.byBranch.length ? perfSum(bundle.byBranch) : null);
+    html += '<div class="sub">أداء الموظفات</div>' + table(['#', 'الموظفة', 'إجمالي الحالات', '% من الإجمالي', 'تم الحل', 'قيد المتابعة', 'لم يتم الحل', 'نسبة الحل'],
+      bundle.byEmployee.map(function (e, i) { return [ltr_(i + 1), escapeHtml_(e.name), ltr_(e.total), ltr_(e.pctOfTotal + '%'), ltr_(e.solved), ltr_(e.followup), ltr_(e.open), rateCell(e.resolutionRatePct)]; }));
+    html += '<div class="sub">أنواع المشاكل</div>' + table(['نوع المشكلة', 'الإجمالي', 'النسبة', 'تم الحل', 'قيد المتابعة', 'لم يتم الحل', 'نسبة الحل'],
+      bundle.byProblemType.map(function (p) { return [escapeHtml_(p.name), ltr_(p.total), ltr_(p.pctOfTotal + '%'), ltr_(p.solved), ltr_(p.followup), ltr_(p.open), rateCell(p.resolutionRatePct)]; }));
 
-  const probResRows = bundle.byProblemType.map(p =>
-    `<tr><td>${escapeHtml_(p.name)}</td><td>${p.total}</td><td>${p.solved}</td><td>${p.followup}</td><td>${p.open}</td><td>${p.resolutionRatePct}%</td></tr>`
-  ).join('');
+    // 04 الملاحظات
+    html += '<div class="sec">04 · الملاحظات ونتائج المراجعة</div>';
+    if (!findings.length) html += '<div class="call">لا توجد ملاحظات مستخرجة من البيانات.</div>';
+    else html += table(['#', 'الملاحظة', 'الدليل', 'الأثر', 'الخطورة / السبب الجذري / المسؤول / الاستحقاق'],
+      findings.map(function (f, i) { return [ltr_(i + 1), escapeHtml_(f.title), escapeHtml_(f.evidence), escapeHtml_(f.impact), '<span class="miss">' + MISSING + '</span>']; }));
 
-  const branchRows = bundle.byBranch.map(b =>
-    `<tr><td>${escapeHtml_(b.name)}</td><td>${b.total}</td><td>${b.solved}</td><td>${b.followup}</td><td>${b.open}</td><td>${b.resolutionRatePct}%</td></tr>`
-  ).join('');
+    // 05 التوصيات
+    html += '<div class="sec">05 · التوصيات</div>';
+    if (!findings.length) html += '<div class="call">لا توجد توصيات — لا توجد ملاحظات تستدعي إجراءً.</div>';
+    else {
+      html += table(['المشكلة', 'التأثير', 'الإجراء المطلوب', 'المسؤول', 'الأولوية'],
+        findings.map(function (f) { const m = '<span class="miss">' + MISSING + '</span>'; return [escapeHtml_(f.title), escapeHtml_(f.impact), m, m, m]; }));
+      html += '<div class="call">لا يتضمن مصدر البيانات إجراءات أو مسؤولين أو أولويات؛ تُستكمل عند اعتماد الإدارة.</div>';
+    }
 
-  const branchResRows = bundle.byBranch.map(b =>
-    `<tr><td>${escapeHtml_(b.name)}</td><td><span class="bar-wrap"><span class="bar-fill" style="width:${b.resolutionRatePct}%;"></span></span></td><td>${b.resolutionRatePct}%</td></tr>`
-  ).join('');
-
-  return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><style>${css}</style></head><body>
-
-    <div class="header">
-      <div><div class="brand">ARRIVE</div><div class="brand-sub">Logistics</div></div>
-      <div style="text-align:left;"><div class="brand-sub">Fleet Support – Management Report</div></div>
-    </div>
-
-    <div class="report-title">
-      <h2>Fleet Support — تقرير الإدارة</h2>
-      <div class="sub">من ${period.from || '—'} إلى ${period.to || '—'}</div>
-    </div>
-
-    <div class="meta-grid">
-      <div class="meta-box"><div class="t">Report Period</div><div class="v">${period.from || '—'} → ${period.to || '—'}</div></div>
-      <div class="meta-box"><div class="t">Generated on</div><div class="v">${now}</div></div>
-      <div class="meta-box"><div class="t">Generated by</div><div class="v">Fleet Support Dashboard</div></div>
-    </div>
-
-    <div class="section">Applied Filters</div>
-    <table><tbody>
-      ${appliedFiltersRows.map(r => `<tr><td style="width:20%;font-weight:700;">${r[0]}</td><td>${escapeHtml_(r[1])}</td></tr>`).join('')}
-    </tbody></table>
-
-    <div class="section">Executive Summary</div>
-    ${kpiRow}
-
-    <div class="section">Daily Performance</div>
-    <table><thead><tr><th>التاريخ</th><th>إجمالى</th><th>تم الحل</th><th>جاري الحل</th><th>لم يتم الحل</th></tr></thead>
-    <tbody>${dailyRows || emptyRow_(5)}</tbody></table>
-
-    <div class="section">Employee Productivity</div>
-    <table><thead><tr><th>الموظفة</th><th>إجمالي الحالات</th><th>تم الحل</th><th>جاري الحل</th><th>فشل التواصل</th><th>Solution %</th></tr></thead>
-    <tbody>${empRows || emptyRow_(6)}</tbody></table>
-
-    <div class="section">Employee Ranking</div>
-    <table><thead><tr><th>#</th><th>الموظفة</th><th>عدد الحالات</th><th>% من الإجمالى</th><th>Solution %</th></tr></thead>
-    <tbody>${rankRows || emptyRow_(5)}</tbody></table>
-
-    <div class="section">Problem Type Analysis</div>
-    <table><thead><tr><th>نوع المشكلة</th><th>عدد الحالات</th><th>النسبة</th></tr></thead>
-    <tbody>${probRows || emptyRow_(3)}</tbody></table>
-
-    <div class="section">Problem Resolution</div>
-    <table><thead><tr><th>نوع المشكلة</th><th>الإجمالي</th><th>تم الحل</th><th>جاري الحل</th><th>فشل التواصل</th><th>Solution %</th></tr></thead>
-    <tbody>${probResRows || emptyRow_(6)}</tbody></table>
-
-    <div class="section">Branch Performance</div>
-    <table><thead><tr><th>الفرع</th><th>إجمالي المشاكل</th><th>تم الحل</th><th>جاري الحل</th><th>فشل التواصل</th><th>Solution %</th></tr></thead>
-    <tbody>${branchRows || emptyRow_(6)}</tbody></table>
-
-    <div class="section">Branch Resolution %</div>
-    <table><thead><tr><th>الفرع</th><th></th><th>Solution %</th></tr></thead>
-    <tbody>${branchResRows || emptyRow_(3)}</tbody></table>
-
-    <div class="footer"><span>ARRIVE — Fleet Support Dashboard</span><span>${now}</span></div>
-
-  </body></html>`;
+    // 06 الختام
+    html += '<div class="sec">06 · الختام والملخص الإداري</div><div class="call">إجمالي المشاكل ' + ltr_(k.total) + '، ونسبة الحل ' + ltr_(k.resolutionRatePct + '%') + '. ' +
+      ltr_(k.open) + ' حالة لم يتم حلها و' + ltr_(k.followup) + ' قيد المتابعة. ' + (findings.length ? 'نقاط المتابعة مفصّلة في قسم الملاحظات.' : '') + '</div>';
+  }
+  html += '<div class="foot">ARRIVE — نظام متابعة Fleet Support &nbsp;|&nbsp; أُصدر في <span class="num">' + now + '</span></div></body></html>';
+  return html;
 }
 
-function kpiBox_(value, label) {
-  return `<div class="kpi-box"><div class="v">${value}</div><div class="l">${label}</div></div>`;
-}
-
-function emptyRow_(colspan) {
-  return `<tr><td colspan="${colspan}" style="color:#98a2b3;">لا توجد بيانات فى الفترة المحددة</td></tr>`;
-}
+function ltr_(v) { return '<span class="num">' + escapeHtml_(v) + '</span>'; }
 
 function escapeHtml_(s) {
   if (s === null || s === undefined) return '';

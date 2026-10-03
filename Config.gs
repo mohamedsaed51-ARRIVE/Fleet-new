@@ -62,6 +62,9 @@ const CONFIG = {
 
   DRIVER_EMPTY_DISPLAY: '—',
 
+  // حد «يحتاج متابعة» لنسبة الحل (%) في الملخص التنفيذي وتقرير الإدارة — عرض فقط، لا يدخل في أي حساب.
+  REPORT: { ATTENTION_RESOLUTION_PCT: 50 },
+
   // Cache lifetime (seconds) for computed dashboard payloads.
   CACHE_TTL_SECONDS: 60
 };
