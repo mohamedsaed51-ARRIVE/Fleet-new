@@ -1859,6 +1859,8 @@ async function exportManagementReportPdf() {
     setConnected(false, err.message); lbl.textContent = 'فشل التصدير — حاول مجددًا';
   } finally { setTimeout(() => { lbl.textContent = original; btn.disabled = false; btn.classList.remove('is-busy'); }, 1800); }
 }
+// Formula Injection + فواصل داخل الأسماء: الاسم يُغلَّف بعلامات اقتباس، و" يُهرَّب، وما يبدأ بـ = + - @ Tab CR يُسبق بـ '
+function csvText(v) { let t = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; }
 function exportReportCSV() {
   if (!state.bundle) { setHTML('reportMsg', alertHTML('info', 'ابنِ الإحصائية أولًا', 'اضغط «عرض الإحصائية» قبل التصدير.')); return; }
   const b = state.bundle;
@@ -1869,9 +1871,9 @@ function exportReportCSV() {
   csv += 'لم يتم الحل,' + b.kpis.open + '\n';
   csv += 'نسبة الحل,' + b.kpis.resolutionRatePct + '%\n\n';
   csv += 'الفرع,عدد المشاكل,تم الحل,قيد المتابعة,لم يتم الحل,نسبة الحل\n';
-  b.byBranch.forEach(r => { csv += `${r.name},${r.total},${r.solved},${r.followup},${r.open},${r.resolutionRatePct}%\n`; });
+  b.byBranch.forEach(r => { csv += `${csvText(r.name)},${r.total},${r.solved},${r.followup},${r.open},${r.resolutionRatePct}%\n`; });
   csv += '\nالموظفة,عدد الحالات,تم الحل,قيد المتابعة,لم يتم الحل,نسبة الحل\n';
-  b.byEmployee.forEach(r => { csv += `${r.name},${r.total},${r.solved},${r.followup},${r.open},${r.resolutionRatePct}%\n`; });
+  b.byEmployee.forEach(r => { csv += `${csvText(r.name)},${r.total},${r.solved},${r.followup},${r.open},${r.resolutionRatePct}%\n`; });
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob), a = document.createElement('a');
   a.href = url; a.download = 'fleet-support-report-' + new Date().toISOString().slice(0, 10) + '.csv';

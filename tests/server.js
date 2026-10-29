@@ -10,6 +10,8 @@ const branches=['القاهرة','الجيزة','الإسكندرية','المن
 const types=['عنوان خاطئ','العميل لا يرد','رفض الاستلام','تأجيل من العميل','شحنة تالفة','بيانات ناقصة'];
 const accounts=['Acc-A','Acc-B','Acc-C','Acc-D','Acc-E'];
 const emps=['موظفة ١','موظفة ٢','موظفة ٣','موظفة ٤','موظفة ٥'];
+// اختبار الأمان: MALICIOUS_NAMES=1 يستبدل بعض الأسماء بصيغ CSV وحمولات HTML اصطناعية
+if(process.env.MALICIOUS_NAMES==='1'){ branches.splice(0,4,'=HYPERLINK("http://x","c")','+1+1','فرع, بفاصلة','<img src=x onerror="window.__xss=(window.__xss||0)+1">'); emps.splice(0,2,'@SUM(1)','-2+3'); }
 const drivers=['مندوب ١','مندوب ٢','مندوب ٣',''];
 const statuses=['تم الحل','تم التسليم','جارى الحل','تم التاكيد','لم يتم الحل','لم يتم التاكيد'];
 const rows=[];
