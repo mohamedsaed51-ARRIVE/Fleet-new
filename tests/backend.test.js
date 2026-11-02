@@ -292,3 +292,16 @@ test('analytics: مجاميع الفروع والموظفين = الإجمالي
   const full = b.ctx.api({ action: 'fullAppData' }).data;
   assert.equal(full.analytics.team.total, 3);
 });
+
+/* ------------------------------ تحميل مجزّأ (coreData) ------------------------------ */
+test('coreData: بدون الحالات المفتوحة والتحليلات، وبنفس أرقام fullAppData', () => {
+  const b = mixed();
+  const core = b.ctx.api({ action: 'coreData' }).data, full = b.ctx.api({ action: 'fullAppData' }).data;
+  assert.equal('openCases' in core, false); assert.equal('analytics' in core, false);
+  assert.deepEqual(core.kpis, full.kpis); assert.deepEqual(core.byBranch, full.byBranch); assert.deepEqual(core.dailyTrend, full.dailyTrend);
+  assert.equal(b.ctx.api({ action: 'openCases' }).data.length, full.openCases.length);
+});
+test('refreshCore: يمسح الكاش ويرجّع الأساسيات', () => {
+  const b = mixed(); b.ctx.api({ action: 'coreData' });
+  assert.equal(b.ctx.api({ action: 'refreshCore' }).data.kpis.total, 4);
+});
