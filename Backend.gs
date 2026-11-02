@@ -70,6 +70,7 @@ function buildNormalizedRecords_(values) {
     if (rawDate && !parsedDate) invalidDateCount++;
 
     const status = cleanString_(row[C.STATUS - 1]);
+    const entryDate = parseDateValue_(row[C.RECORD_ID - 1]);   // وقت تسجيل الحالة (Record ID) — يُستخدم لفترات اليوم فقط
     const driver = cleanString_(row[C.DRIVER - 1]);
     const recordId = row[C.RECORD_ID - 1] || null;
 
@@ -94,6 +95,9 @@ function buildNormalizedRecords_(values) {
       problemType: cleanString_(row[C.PROBLEM_TYPE - 1]),
       status: status,
       statusBucket: getStatusBucket_(status),
+      statusKind: getStatusKind_(status),
+      entryHour: entryDate ? entryDate.getHours() : null,
+      weekday: parsedDate ? parsedDate.getDay() : null,       // 0=الأحد … 6=السبت
       notes: cleanString_(row[C.NOTES - 1]),
       whatsappSent: row[C.WHATSAPP_SENT - 1] === true,
       senderNotified: row[C.SENDER_NOTIFIED - 1] === true,
@@ -589,4 +593,202 @@ function uniqueSorted_(records, field) {
     if (v && !seen[v]) { seen[v] = true; out.push(v); }
   });
   return out.sort((a, b) => a.localeCompare(b, 'ar'));
+}
+
+/* ============================== ANALYTICS (تحليل الفريق / الفترات / النتائج) ==============================
+ * كل الأرقام هنا من نفس السجلات المفلترة (getFilteredRecords_) ومن Master Data فقط.
+ * التعريفات (تظهر في الواجهة أيضًا):
+ *   نسبة الحل    = تم الحل ÷ (تم الحل + لم يتم الحل)          — بدون «تم التسليم» و«جارى الحل»
+ *   نسبة التأكيد = تم التاكيد ÷ (تم التاكيد + لم يتم التاكيد)
+ *   المقام صفر => null (تُعرض «—» وليس 0%).
+ * الراسل = عمود Account.   فترات اليوم من وقت التسجيل (Record ID) وليس وقت إرسال الفرع الفعلي.
+ */
+
+/** نسبة بمنزلة عشرية، أو null لو المقام صفر (بخلاف pct_ التي ترجّع 0). */
+function rateOrNull_(num, den) { return den ? Math.round((num / den) * 1000) / 10 : null; }
+
+/** عدّادات الحالات الخام + نسبتي الحل والتأكيد لمجموعة سجلات. */
+function outcomeStats_(list) {
+  const s = { total: list.length, resolved: 0, unresolved: 0, confirmed: 0, notConfirmed: 0, delivered: 0, inProgress: 0, otherStatus: 0 };
+  list.forEach(r => {
+    switch (r.statusKind) {
+      case 'RESOLVED': s.resolved++; break;
+      case 'UNRESOLVED': s.unresolved++; break;
+      case 'CONFIRMED': s.confirmed++; break;
+      case 'NOT_CONFIRMED': s.notConfirmed++; break;
+      case 'DELIVERED': s.delivered++; break;
+      case 'IN_PROGRESS': s.inProgress++; break;
+      default: s.otherStatus++;
+    }
+  });
+  s.solveBasis = s.resolved + s.unresolved;
+  s.confirmBasis = s.confirmed + s.notConfirmed;
+  s.solveRatePct = rateOrNull_(s.resolved, s.solveBasis);
+  s.confirmRatePct = rateOrNull_(s.confirmed, s.confirmBasis);
+  return s;
+}
+
+/** [{label,total}] لأعلى n قيم لحقل داخل مجموعة سجلات (تعادل => ترتيب أبجدي ثابت). */
+function topCounts_(list, field, n) {
+  const c = {};
+  list.forEach(r => { if (r[field]) c[r[field]] = (c[r[field]] || 0) + 1; });
+  return Object.keys(c).map(k => ({ name: k, total: c[k] }))
+    .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name, 'ar')).slice(0, n);
+}
+
+/** تجميع حسب حقل مع إحصاءات النتائج؛ extra(list,row) لإضافة أعمدة خاصة. مرتّب بالأكثر. */
+function groupOutcome_(records, field, extra) {
+  const groups = {};
+  records.forEach(r => { const k = r[field] || '(بدون قيمة)'; (groups[k] = groups[k] || []).push(r); });
+  const total = records.length;
+  return Object.keys(groups).map(k => {
+    const row = Object.assign({ name: k, pctOfTotal: pct_(groups[k].length, total) }, outcomeStats_(groups[k]));
+    if (extra) extra(groups[k], row);
+    return row;
+  }).sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name, 'ar'));
+}
+
+/** كل الشهور من أول شهر في البيانات حتى آخر شهر، بدون ثغرات: ['2026-01','2026-02',...]. */
+function monthRange_(records) {
+  const keys = records.filter(r => r.monthKey).map(r => r.monthKey).sort();
+  if (!keys.length) return [];
+  let y = +keys[0].slice(0, 4), m = +keys[0].slice(5, 7);
+  const ey = +keys[keys.length - 1].slice(0, 4), em = +keys[keys.length - 1].slice(5, 7);
+  const out = [];
+  while (y < ey || (y === ey && m <= em)) {
+    out.push(y + '-' + (m < 10 ? '0' : '') + m);
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+function getMonthlyNumbers_(records) {
+  const dated = records.filter(r => r.monthKey);
+  const months = monthRange_(dated);
+  const by = {};
+  dated.forEach(r => { (by[r.monthKey] = by[r.monthKey] || []).push(r); });
+  let prev = null;
+  return months.map(m => {
+    const row = Object.assign({ month: m }, outcomeStats_(by[m] || []));
+    row.diffVsPrev = prev === null ? null : row.total - prev;
+    row.changePctVsPrev = (prev === null || prev === 0) ? null : rateOrNull_(row.total - prev, prev);
+    prev = row.total;
+    return row;
+  });
+}
+
+/** مصفوفة الموظفة × الشهر (من أول شهر في البيانات) — أعداد الحالات. */
+function getEmployeeMonthly_(records, months) {
+  const dated = records.filter(r => r.monthKey);
+  const idx = {}; months.forEach((m, i) => { idx[m] = i; });
+  const by = {};
+  dated.forEach(r => {
+    const k = r.employee || '(بدون قيمة)';
+    if (!by[k]) by[k] = { name: k, counts: months.map(() => 0), total: 0 };
+    by[k].counts[idx[r.monthKey]]++; by[k].total++;
+  });
+  return { months: months, rows: Object.keys(by).map(k => by[k]).sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name, 'ar')) };
+}
+
+/* ---------------- فترات الإرسال ---------------- */
+const WEEKDAY_ORDER_ = [6, 0, 1, 2, 3, 4, 5];   // السبت أولًا
+const WEEKDAY_LABELS_ = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];   // فهرس = Date.getDay()
+const WEEKDAY_DEFS_ = {};
+WEEKDAY_ORDER_.forEach((d, i) => { WEEKDAY_DEFS_[d] = { key: 'd' + d, label: WEEKDAY_LABELS_[d], order: i }; });
+const MONTH_PARTS_ = [
+  { key: 'w1', label: 'الأسبوع الأول (1–7)', from: 1, to: 7 }, { key: 'w2', label: 'الأسبوع الثاني (8–14)', from: 8, to: 14 },
+  { key: 'w3', label: 'الأسبوع الثالث (15–21)', from: 15, to: 21 }, { key: 'w4', label: 'الأسبوع الرابع (22–نهاية الشهر)', from: 22, to: 31 }
+];
+
+const MONTH_PART_DEFS_ = MONTH_PARTS_.map((p, i) => ({ key: p.key, label: p.label, order: i }));
+
+function hourLabel_(h) {
+  const suf = h < 12 ? 'ص' : 'م', x = h % 12 === 0 ? 12 : h % 12;
+  return x + suf;
+}
+
+/** يبني صفوف فترة: periodOf(record) => {key,label,order} أو null (سجل بلا بيانات لهذه الفترة). */
+function buildPeriodRows_(records, periodOf, seed) {
+  const map = {};
+  (seed || []).forEach(p => { map[p.key] = { key: p.key, label: p.label, order: p.order, list: [] }; });
+  let missing = 0;
+  records.forEach(r => {
+    const p = periodOf(r);
+    if (!p) { missing++; return; }
+    if (!map[p.key]) map[p.key] = { key: p.key, label: p.label, order: p.order, list: [] };
+    map[p.key].list.push(r);
+  });
+  const rows = Object.keys(map).map(k => map[k]).sort((a, b) => a.order - b.order);
+  const used = records.length - missing;
+  const max = rows.reduce((m, p) => Math.max(m, p.list.length), 0);
+  return {
+    missing: missing,
+    rows: rows.map(p => ({
+      key: p.key, label: p.label, total: p.list.length, pctOfTotal: pct_(p.list.length, used),
+      isPeak: max > 0 && p.list.length === max,
+      topBranches: p.list.length ? topCounts_(p.list, 'branch', CONFIG.ANALYTICS.TOP_BRANCHES_PER_PERIOD) : []
+    }))
+  };
+}
+
+function getPeriodAnalysis_(records) {
+  const block = CONFIG.ANALYTICS.HOUR_BLOCK;
+  const dated = records.filter(r => r.hasValidDate);
+  const hourDefs = {};   // تعريف كل فترة مرة واحدة بدل إنشاء كائن لكل سجل
+  const hour = buildPeriodRows_(records, r => {
+    if (r.entryHour === null || r.entryHour === undefined) return null;
+    const start = Math.floor(r.entryHour / block) * block;
+    return hourDefs[start] || (hourDefs[start] = { key: 'h' + start, label: hourLabel_(start) + ' – ' + hourLabel_((start + block) % 24), order: start });
+  });
+  const weekday = buildPeriodRows_(dated, r => {
+    return WEEKDAY_DEFS_[r.weekday] || null;
+  }, WEEKDAY_ORDER_.map((d, i) => ({ key: 'd' + d, label: WEEKDAY_LABELS_[d], order: i })));
+  const monthPart = buildPeriodRows_(dated, r => {
+    if (!(r.day >= 1 && r.day <= 31)) return null;
+    const i = r.day <= 7 ? 0 : r.day <= 14 ? 1 : r.day <= 21 ? 2 : 3;   // نفس حدود MONTH_PARTS_
+    return MONTH_PART_DEFS_[i];
+  }, MONTH_PARTS_.map((p, i) => ({ key: p.key, label: p.label, order: i })));
+  return { hour: hour, weekday: weekday, monthPart: monthPart, hourBlock: block };
+}
+
+/* ---------------- الحزمة الكاملة ---------------- */
+function getAnalytics(filters) {
+  const records = getFilteredRecords_(filters);
+  const total = records.length;
+  const stats = outcomeStats_(records);
+  const monthly = getMonthlyNumbers_(records);
+  const months = monthly.map(m => m.month);
+  const activeDays = {}; records.forEach(r => { if (r.dateKey) activeDays[r.dateKey] = true; });
+  const activeDayCount = Object.keys(activeDays).length;
+  const employees = uniqueCount_(records, 'employee');
+  const wa = records.filter(r => r.whatsappSent).length, sn = records.filter(r => r.senderNotified).length;
+
+  const withDriver = records.filter(r => r.driver);
+  const topProblemTypes = groupOutcome_(records, 'problemType');
+
+  return {
+    team: Object.assign({}, stats, {
+      employees: employees, branches: uniqueCount_(records, 'branch'), accounts: uniqueCount_(records, 'account'), drivers: uniqueCount_(withDriver, 'driver'),
+      problemTypes: uniqueCount_(records, 'problemType'), months: months.length, activeDays: activeDayCount,
+      avgPerEmployee: employees ? Math.round((total / employees) * 10) / 10 : 0,
+      avgPerActiveDay: activeDayCount ? Math.round((total / activeDayCount) * 10) / 10 : 0,
+      whatsappSent: wa, whatsappPct: rateOrNull_(wa, total), senderNotified: sn, senderNotifiedPct: rateOrNull_(sn, total)
+    }),
+    monthly: monthly,
+    periods: getPeriodAnalysis_(records),
+    employeeOutcome: groupOutcome_(records, 'employee'),
+    branchOutcome: groupOutcome_(records, 'branch'),
+    employeeMonthly: getEmployeeMonthly_(records, months),
+    problemTypes: topProblemTypes,
+    topProblemTypesLimit: CONFIG.ANALYTICS.TOP_PROBLEM_TYPES,
+    senders: groupOutcome_(records, 'account', (list, row) => {
+      const t = topCounts_(list, 'problemType', 3);
+      row.topProblemType = t.length ? t[0] : null; row.topProblemTypes = t;
+    }),
+    drivers: groupOutcome_(withDriver, 'driver', (list, row) => {
+      const b = topCounts_(list, 'branch', 1), t = topCounts_(list, 'problemType', 1);
+      row.topBranch = b.length ? b[0] : null; row.topProblemType = t.length ? t[0] : null;
+    }),
+    driverMissingCount: total - withDriver.length
+  };
 }

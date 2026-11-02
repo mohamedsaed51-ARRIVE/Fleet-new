@@ -42,6 +42,7 @@ const GAS_RUN_MAP = {
   reportsBundle:         filters => ['getReportsBundle', [filters]],
   dailyStatusBreakdown:  filters => ['getDailyStatusBreakdown', [filters]],
   managementReportPdf:   filters => ['getManagementReportPdf', [filters]],
+  analytics:             filters => ['getAnalytics', [filters]],
   fullAppData:           filters => ['getFullAppData', [filters]],
   refresh:               filters => ['refreshAndGetFullAppData', [filters]],
   monthComparison:       filters => ['getMonthComparison', [filters.field || 'branch', filters.monthA, filters.monthB, filters]]
@@ -519,6 +520,7 @@ const PAGES = {
   'page-dashboard': { title: 'لوحة المتابعة' },
   'page-branches':  { title: 'أداء الفروع' },
   'page-employees': { title: 'أداء الموظفين' },
+  'page-insights':  { title: 'تحليل الحالات' },
   'page-open':      { title: 'الحالات المفتوحة' },
   'page-reports':   { title: 'التقارير' }
 };
@@ -582,6 +584,7 @@ function onFullAppData(data) {
   renderDashboardCharts(data);
   renderBranchPage(data.byBranch);
   renderEmployeePage(data.byEmployee, data.kpis);
+  renderAnalytics(data.analytics);
   renderOpenCases(data.openCases);
   checkReportStale();
 }
@@ -788,6 +791,235 @@ function renderOpenCases(cases) {
   grids.open.setRows(cases || []);
   const n = (cases || []).length;
   const b = $('navOpenBadge'); b.hidden = !n; b.textContent = n > 999 ? '999+' : n;
+}
+
+/* ================================================================== */
+/* D2) تحليل الفريق: دور الفريق / الشهور / الفترات / نسب الحل والتأكيد   */
+/*     (بيانات getAnalytics في Backend.gs — نفس الفلاتر)                */
+/* ================================================================== */
+const rateN = (n, d) => d ? Math.round((n / d) * 1000) / 10 : null;     // المقام صفر ← null (تُعرض «—»)، وليس 0%
+const SOLVE_DEF = 'نسبة الحل = تم الحل ÷ (تم الحل + لم يتم الحل)';
+const CONFIRM_DEF = 'نسبة التأكيد = تم التاكيد ÷ (تم التاكيد + لم يتم التاكيد)';
+let analyticsData = null;
+
+function seriesColors() { return [P.blue, P.teal, P.navy, P.amber, P.g400, P.red]; }
+function legendOpts() { return { position: 'bottom', rtl: true, labels: { boxWidth: 10, boxHeight: 10, padding: 14, font: { family: 'Cairo, Inter', size: 12 } } }; }
+
+/** أعمدة متعددة السلاسل (الفئات من اليمين لليسار — قاعدة الـ RTL). series: [{label,data,color,suffix}] */
+function multiBar(id, labels, series, o) {
+  o = o || {};
+  if (!chartOK()) return;
+  destroyChart(id);
+  const empty = !labels.length; toggleEmpty(id, empty); if (empty) return;
+  chartInstances[id] = new Chart($(id), {
+    type: 'bar',
+    data: { labels, datasets: series.map(s => ({ label: s.label, data: s.data, backgroundColor: s.color, borderRadius: 4, maxBarThickness: 26, suffix: o.suffix || '' })) },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 350 }, layout: { padding: { top: 20 } },
+      plugins: { legend: legendOpts(), tooltip: tooltipOpts(), valueLabels: { display: true, suffix: o.suffix || '' } },
+      scales: {
+        x: { reverse: true, grid: { display: false }, border: { color: P.axis }, ticks: { autoSkip: false, maxRotation: 40, callback(v) { return shortLabel(this.getLabelForValue(v), 14); } } },
+        y: { position: 'right', beginAtZero: true, max: o.max, grace: o.max ? 0 : '12%', grid: { color: P.grid, drawTicks: false }, border: { display: false }, ticks: { precision: 0, font: { family: 'Inter, Cairo', size: 11 } } }
+      }
+    }
+  });
+}
+/** خطوط متعددة السلاسل: الزمن من اليسار (الأقدم) لليمين (الأحدث) — استثناء السلاسل الزمنية الموثّق. */
+function multiLine(id, labels, series, o) {
+  o = o || {};
+  if (!chartOK()) return;
+  destroyChart(id);
+  const empty = !labels.length || !series.length; toggleEmpty(id, empty); if (empty) return;
+  chartInstances[id] = new Chart($(id), {
+    type: 'line',
+    data: { labels, datasets: series.map(s => ({ label: s.label, data: s.data, borderColor: s.color, backgroundColor: s.color, fill: false, tension: .25, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, spanGaps: false, suffix: o.suffix || '' })) },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 350 }, interaction: { mode: 'index', intersect: false }, layout: { padding: { top: 14, right: 14 } },
+      plugins: { legend: series.length > 1 ? legendOpts() : { display: false }, tooltip: tooltipOpts(), valueLabels: { display: series.length === 1, last: false, suffix: o.suffix || '' } },
+      scales: {
+        x: { grid: { display: false }, border: { color: P.axis }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { family: 'Inter, Cairo', size: 11 } } },
+        y: { beginAtZero: true, max: o.max, grace: o.max ? 0 : '12%', grid: { color: P.grid, drawTicks: false }, border: { display: false }, ticks: { precision: 0, font: { family: 'Inter, Cairo', size: 11 } } }
+      }
+    }
+  });
+}
+
+function tagsHTML(list) {
+  return (list && list.length) ? '<div class="ar-tags">' + list.map(b => '<span class="tg">' + esc(b.name) + '<span class="num">' + fInt(b.total) + '</span></span>').join('') + '</div>' : '—';
+}
+function nameCount(o) { return o ? esc(o.name) + ' <span class="muted">(' + N(fInt(o.total)) + ')</span>' : '—'; }
+
+const outcomeSum = label => rows => {
+  const g = k => sumRows(rows, k), res = g('resolved'), unr = g('unresolved'), con = g('confirmed'), nc = g('notConfirmed');
+  return { name: label, total: g('total'), resolved: res, unresolved: unr, confirmed: con, notConfirmed: nc, delivered: g('delivered'), inProgress: g('inProgress'), rest: g('rest'),
+    solveRatePct: rateN(res, res + unr), confirmRatePct: rateN(con, con + nc), pctOfTotal: g('pctOfTotal') ? Math.round(g('pctOfTotal') * 10) / 10 : undefined };
+};
+function outcomeCols(nameLabel, totalLabel, o) {
+  o = o || {};
+  const c = [
+    { key: 'rank', type: 'rank', label: '#' },
+    { key: 'name', type: 'name', label: nameLabel },
+    { key: 'total', type: 'int', label: totalLabel }
+  ];
+  if (o.pct) c.push({ key: 'pctOfTotal', type: 'pct', label: 'النسبة من الإجمالي' });
+  c.push(
+    { key: 'resolved', type: 'int', label: 'تم الحل' },
+    { key: 'unresolved', type: 'int', label: 'لم يتم الحل' },
+    { key: 'solveRatePct', type: 'rate', label: 'نسبة الحل' },
+    { key: 'confirmed', type: 'int', label: 'تم التاكيد' },
+    { key: 'notConfirmed', type: 'int', label: 'لم يتم التاكيد' },
+    { key: 'confirmRatePct', type: 'rate', label: 'نسبة التأكيد' });
+  if (o.rest) c.push({ key: 'rest', type: 'int', label: 'حالات أخرى' });
+  return c;
+}
+
+/* ---------- 1) دور الفريق (الملخص التنفيذي) ---------- */
+function renderTeamRole(a) {
+  const t = a.team;
+  if (!t.total) { setHTML('teamRoleText', emptyHTML()); setHTML('teamRoleKpis', ''); setHTML('teamRoleNote', ''); return; }
+  const b = v => '<b>' + N(fInt(v)) + '</b>';
+  const f1 = v => '<b>' + N(Number(v).toLocaleString('en-US')) + '</b>';
+  const line = (title, html) => '<div><span class="muted">' + title + ':</span> ' + html + '</div>';
+  const sep = ' · ';
+  const lines = [
+    line('حجم المتابعة', b(t.total) + ' حالة' + sep + 'الفروع: ' + b(t.branches) + sep + 'الراسلون (Account): ' + b(t.accounts) + (t.drivers ? sep + 'المناديب: ' + b(t.drivers) : '') + sep + 'الموظفات: ' + b(t.employees)),
+    line('الإيقاع', 'متوسط ' + f1(t.avgPerEmployee) + ' حالة لكل موظفة' + sep + f1(t.avgPerActiveDay) + ' حالة في اليوم المسجل' + sep + 'الأيام المسجلة: ' + b(t.activeDays) + sep + 'عدد الشهور في البيانات: ' + b(t.months))
+  ];
+  const outcome = [];
+  if (t.solveBasis) outcome.push('تم حل ' + b(t.resolved) + ' من ' + b(t.solveBasis) + ' حالة محسومة (' + N(fPct(t.solveRatePct)) + ')');
+  if (t.confirmBasis) outcome.push('تم تأكيد ' + b(t.confirmed) + ' من ' + b(t.confirmBasis) + ' (' + N(fPct(t.confirmRatePct)) + ')');
+  if (outcome.length) lines.push(line('النتيجة', outcome.join(sep)));
+  if (t.whatsappPct !== null) lines.push(line('المتابعة المسجلة', 'تم إرسال واتساب: ' + N(fPct(t.whatsappPct)) + sep + 'تم إبلاغ الراسل: ' + N(fPct(t.senderNotifiedPct))));
+  setHTML('teamRoleText', '<div class="ar-team-text">' + lines.join('') + '</div>');
+  const K = (tone, icon, label, value, sub, unit) => kpiHTML({ tone, icon, label, value, sub, unit, compact: true });
+  setHTML('teamRoleKpis', [
+    K('brand', 'users', 'موظفات الفريق', N(fInt(t.employees)), 'متوسط ' + N(Number(t.avgPerEmployee).toLocaleString('en-US')) + ' حالة لكل موظفة'),
+    K('brand', 'calendar-day', 'متوسط الحالات يوميًا', N(Number(t.avgPerActiveDay).toLocaleString('en-US')), N(fInt(t.activeDays)) + ' يوم مسجل'),
+    K('success', STATUS_ICON.success, 'نسبة الحل', t.solveRatePct === null ? '—' : N(Number(t.solveRatePct).toFixed(1)), t.solveRatePct === null ? 'لا توجد حالات محسومة' : N(fInt(t.resolved)) + ' من ' + N(fInt(t.solveBasis)), t.solveRatePct === null ? '' : '%'),
+    K('success', 'clipboard-check', 'نسبة التأكيد', t.confirmRatePct === null ? '—' : N(Number(t.confirmRatePct).toFixed(1)), t.confirmRatePct === null ? 'لا توجد حالات محسومة' : N(fInt(t.confirmed)) + ' من ' + N(fInt(t.confirmBasis)), t.confirmRatePct === null ? '' : '%'),
+    K('brand', 'comment-dots', 'تم إرسال واتساب', t.whatsappPct === null ? '—' : N(Number(t.whatsappPct).toFixed(1)), N(fInt(t.whatsappSent)) + ' حالة', t.whatsappPct === null ? '' : '%'),
+    K('brand', 'bell', 'تم إبلاغ الراسل', t.senderNotifiedPct === null ? '—' : N(Number(t.senderNotifiedPct).toFixed(1)), N(fInt(t.senderNotified)) + ' حالة', t.senderNotifiedPct === null ? '' : '%')
+  ].join(''));
+  setHTML('teamRoleNote', '<i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>' + SOLVE_DEF + ' — ' + CONFIRM_DEF + '. «يوم مسجل» = يوم به حالة واحدة على الأقل (وليس أيام العمل الرسمية). النسب مبنية على الحالات المحسومة فقط.</span>');
+}
+
+/* ---------- 2) + 4) الأرقام الشهرية ---------- */
+function undatedNote(a, rows) {
+  const n = a.team.total - sumRows(rows, 'total');
+  return n > 0 ? '<div class="ar-note ar-stack"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span>' + N(fInt(n)) + ' سجل بلا تاريخ صالح مستبعد من هذا الجدول وهذا الرسم، لذلك الإجمالي هنا أقل من إجمالي الحالات (' + N(fInt(a.team.total)) + ').</span></div>' : '';
+}
+function renderMonthly(a) {
+  const m = a.monthly || [];
+  setHTML('monthlyUndatedHost', undatedNote(a, m));
+  grids.monthly.setRows(m);
+  line('chMonthly', m.map(x => x.month), m.map(x => x.total), { label: 'عدد الحالات' });
+  multiLine('chMonthlyRates', m.map(x => x.month), [
+    { label: 'نسبة الحل', data: m.map(x => x.solveRatePct), color: P.blue, suffix: '%' },
+    { label: 'نسبة التأكيد', data: m.map(x => x.confirmRatePct), color: P.teal, suffix: '%' }
+  ], { suffix: '%', max: 100 });
+}
+
+/* ---------- 3) فترات الإرسال وفترة الضغط ---------- */
+const PERIOD_NAMES = { weekday: 'يوم الأسبوع', monthPart: 'أسبوع الشهر', hour: 'فترة اليوم' };
+function renderPeriods(a) {
+  const mode = val('periodMode') || 'weekday', p = (a.periods || {})[mode] || { rows: [], missing: 0 };
+  const rows = p.rows, sum = sumRows(rows, 'total');
+  grids.period.setRows(rows);
+  const lbl = r => r.label.replace(/\s*\(.*\)$/, '');
+  if (!sum) {
+    setHTML('periodPeakHost', alertHTML('info', 'لا توجد بيانات لهذا التقسيم', mode === 'hour' ? 'لا توجد سجلات بوقت تسجيل صالح (Record ID) ضمن الفلاتر الحالية.' : 'لا توجد سجلات بتاريخ صالح ضمن الفلاتر الحالية.'));
+    destroyChart('chPeriod'); toggleEmpty('chPeriod', true);
+  } else {
+    const peaks = rows.filter(r => r.isPeak);
+    setHTML('periodPeakHost', '<div class="ar-stack">' + alertHTML('warning', 'فترة الضغط (' + PERIOD_NAMES[mode] + '): ' + peaks.map(r => esc(r.label)).join(' و '),
+      peaks.map(r => N(fInt(r.total)) + ' حالة (' + N(fPct(r.pctOfTotal)) + ' من حالات هذا التقسيم)' + (r.topBranches.length ? ' — أكثر الفروع إرسالًا: ' + r.topBranches.map(b => esc(b.name) + ' ' + N(fInt(b.total))).join('، ') : '')).join('<br>') +
+      (peaks.length > 1 ? '<br>تعادل بين أكثر من فترة في أعلى عدد.' : '')) + '</div>');
+    bar('chPeriod', rows.map(lbl), rows.map(r => r.total));
+  }
+  const notes = ['«فترة الضغط» = الفترة الأعلى عددًا في التقسيم المختار.'];
+  if (mode === 'hour') notes.push('فترات اليوم محسوبة من وقت تسجيل الحالة (Record ID) — وقت إدخال الموظفة وقد لا يطابق وقت إرسال الفرع للحالة.' + (p.missing ? ' ' + fInt(p.missing) + ' سجل بلا وقت تسجيل صالح مستبعد من هذا التقسيم.' : ''));
+  else if (p.missing) notes.push(fInt(p.missing) + ' سجل بلا تاريخ صالح مستبعد من هذا التقسيم.');
+  setHTML('periodNote', '<i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>' + notes.join(' ') + '</span>');
+}
+
+/* ---------- 9) نسب الفروع  /  6) نسب الموظفات ---------- */
+function renderOutcomeChart(chartId, noteId, rows) {
+  const top = rows.slice(0, TOP_N);
+  multiBar(chartId, top.map(r => r.name), [
+    { label: 'نسبة الحل', data: top.map(r => r.solveRatePct), color: P.blue },
+    { label: 'نسبة التأكيد', data: top.map(r => r.confirmRatePct), color: P.teal }
+  ], { suffix: '%', max: 100 });
+  topNote(noteId, top.length, rows.length);
+}
+
+/* ---------- 5) حجم الشغل لكل موظفة شهريًا ---------- */
+function renderEmployeeMonthly(a) {
+  const em = a.employeeMonthly || { months: [], rows: [] };
+  setHTML('employeeMonthlyUndatedHost', undatedNote(a, em.rows));
+  const key = em.months.join('|');
+  if (!grids.empMonthly || grids.empMonthly._cols !== key) {
+    const cols = [{ key: 'rank', type: 'rank', label: '#' }, { key: 'name', type: 'name', label: 'الموظفة' }]
+      .concat(em.months.map((m, i) => ({ key: 'm' + i, type: 'int', label: m })))
+      .concat([{ key: 'total', type: 'int', label: 'الإجمالي' }]);
+    grids.empMonthly = new DataGrid('employeeMonthlyTableHost', { title: 'عدد الحالات لكل موظفة شهريًا', columns: cols, summary: rows => {
+      const o = { name: 'الإجمالي', total: sumRows(rows, 'total') }; em.months.forEach((m, i) => { o['m' + i] = sumRows(rows, 'm' + i); }); return o;
+    }, pageSize: 10, searchPlaceholder: 'ابحث باسم الموظفة…' });
+    grids.empMonthly._cols = key;
+  }
+  grids.empMonthly.setRows(em.rows.map(r => { const o = { name: r.name, total: r.total }; r.counts.forEach((c, i) => { o['m' + i] = c; }); return o; }));
+  const col = seriesColors();
+  multiLine('chEmpMonthly', em.months, em.rows.slice(0, 6).map((r, i) => ({ label: r.name, data: r.counts, color: col[i % col.length] })));
+}
+
+/* ---------- 7) أكبر 6 أنواع مشاكل ---------- */
+function renderProblemTop(a) {
+  const lim = a.topProblemTypesLimit || 6, all = a.problemTypes || [], top = all.slice(0, lim).map(r => Object.assign({}, r, { rest: r.total - r.resolved - r.unresolved - r.confirmed - r.notConfirmed }));
+  grids.problemTop.setRows(top);
+  const total = a.team.total, topSum = sumRows(top, 'total');
+  setHTML('problemTopStats', top.length
+    ? '<div class="ar-stat brand"><div class="q">أكبر نوع مشكلة</div><div class="a">' + esc(top[0].name) + ' — ' + N(fInt(top[0].total)) + ' حالة (' + N(fPct(top[0].pctOfTotal)) + ')</div></div>' +
+      '<div class="ar-stat brand"><div class="q">الأنواع الـ' + N(top.length) + ' الأكبر مجتمعة</div><div class="a">' + N(fInt(topSum)) + ' حالة (' + N(fPct(pctOf(topSum, total))) + ' من الإجمالي) · من أصل ' + N(fInt(all.length)) + ' نوع</div></div>'
+    : '');
+  multiBar('chProblemTop', top.map(r => r.name), [
+    { label: 'إجمالي الحالات', data: top.map(r => r.total), color: P.g300 },
+    { label: 'تم الحل', data: top.map(r => r.resolved), color: P.blue },
+    { label: 'تم التاكيد', data: top.map(r => r.confirmed), color: P.teal }
+  ]);
+}
+
+/* ---------- 8) الراسلون ---------- */
+function renderSenders(a) {
+  const s = a.senders || [], total = a.team.total;
+  grids.sender.setRows(s);
+  const top10 = s.slice(0, TOP_N), t10 = sumRows(top10, 'total');
+  setHTML('senderTopStats', s.length
+    ? '<div class="ar-stat brand"><div class="q">أكثر راسل إرسالًا للحالات</div><div class="a">' + esc(s[0].name) + ' — ' + N(fInt(s[0].total)) + ' حالة (' + N(fPct(s[0].pctOfTotal)) + ')</div></div>' +
+      '<div class="ar-stat brand"><div class="q">عدد الراسلين / نصيب أعلى ' + N(top10.length) + '</div><div class="a">' + N(fInt(s.length)) + ' راسل · أعلى ' + N(top10.length) + ' = ' + N(fPct(pctOf(t10, total))) + ' من الحالات</div></div>'
+    : '');
+  bar('chSender', top10.map(r => r.name), top10.map(r => r.total), { horizontal: true }); topNote('noteSender', top10.length, s.length);
+}
+
+/* ---------- 10) المناديب ---------- */
+function renderDrivers(a) {
+  const d = a.drivers || [];
+  grids.driver.setRows(d);
+  setHTML('driverNoteHost', a.driverMissingCount > 0 ? '<div class="ar-stack">' + alertHTML('info', 'حالات بلا اسم مندوب', N(fInt(a.driverMissingCount)) + ' حالة بلا اسم مندوب في Master Data — مستبعدة من هذا القسم ومن نسبه (محسوبة من حالات المناديب المسمّين فقط).') + '</div>' : '');
+  const top10 = d.slice(0, TOP_N);
+  bar('chDriver', top10.map(r => r.name), top10.map(r => r.total), { horizontal: true }); topNote('noteDriver', top10.length, d.length);
+}
+
+function renderAnalytics(a) {
+  analyticsData = a;
+  if (!a) return;
+  renderTeamRole(a);
+  renderMonthly(a);
+  renderPeriods(a);
+  grids.branchOutcome.setRows(a.branchOutcome); renderOutcomeChart('chBranchOutcome', 'noteBranchOutcome', a.branchOutcome);
+  grids.employeeOutcome.setRows(a.employeeOutcome); renderOutcomeChart('chEmployeeOutcome', 'noteEmployeeOutcome', a.employeeOutcome);
+  renderEmployeeMonthly(a);
+  renderProblemTop(a);
+  renderSenders(a);
+  renderDrivers(a);
 }
 
 /* ================================================================== */
@@ -1030,6 +1262,50 @@ function initGrids() {
   placeholderChart('chEmployeeCompare', 'لم تُجرَ مقارنة بعد');
   grids.branch = new DataGrid('branchTableHost', { title: 'ترتيب الفروع', columns: perfCols('الفرع', 'عدد المشاكل'), summary: summaryFor('الإجمالي'), pageSize: 10, searchPlaceholder: 'ابحث باسم الفرع…' });
   grids.employee = new DataGrid('employeeTableHost', { title: 'ترتيب الموظفين', columns: perfCols('الموظفة', 'عدد الحالات'), summary: summaryFor('الإجمالي'), pageSize: 10, searchPlaceholder: 'ابحث باسم الموظفة…' });
+  const monthlyCols = [
+    { key: 'month', type: 'text', label: 'الشهر', cls: 'c-name', render: r => N(esc(r.month)) },
+    { key: 'total', type: 'int', label: 'إجمالي الحالات' },
+    { key: 'diffVsPrev', type: 'int', label: 'الفرق عن الشهر السابق', render: r => r.diffVsPrev === null ? '—' : N(fDeltaInt(r.diffVsPrev)) },
+    { key: 'changePctVsPrev', type: 'pct', label: 'نسبة التغيّر', render: r => r.changePctVsPrev === null ? '—' : N(fDeltaPct(r.changePctVsPrev)) },
+    { key: 'resolved', type: 'int', label: 'تم الحل' },
+    { key: 'unresolved', type: 'int', label: 'لم يتم الحل' },
+    { key: 'solveRatePct', type: 'rate', label: 'نسبة الحل' },
+    { key: 'confirmed', type: 'int', label: 'تم التاكيد' },
+    { key: 'notConfirmed', type: 'int', label: 'لم يتم التاكيد' },
+    { key: 'confirmRatePct', type: 'rate', label: 'نسبة التأكيد' },
+    { key: 'delivered', type: 'int', label: 'تم التسليم' },
+    { key: 'inProgress', type: 'int', label: 'جارى الحل' }
+  ];
+  grids.monthly = new DataGrid('monthlyTableHost', { title: 'الأرقام الشهرية', columns: monthlyCols, searchable: false, pageSize: 12, pageSizes: [12, 24, 60],
+    summary: rows => { const o = outcomeSum('الإجمالي')(rows); o.month = 'الإجمالي'; return o; } });
+  grids.period = new DataGrid('periodTableHost', { title: 'الحالات حسب الفترة', searchable: false, pageSize: 12, pageSizes: [12, 24], columns: [
+    { key: 'label', type: 'name', label: 'الفترة' },
+    { key: 'total', type: 'int', label: 'عدد الحالات' },
+    { key: 'pctOfTotal', type: 'pct', label: 'النسبة' },
+    { key: 'isPeak', type: 'text', label: 'فترة الضغط', sortable: false, render: r => r.isPeak ? badge('under-action', 'فترة الضغط', true, 'fire') : '—' },
+    { key: 'topBranches', type: 'text', label: 'أكثر الفروع إرسالًا في الفترة', sortable: false, render: r => tagsHTML(r.topBranches) }
+  ] });
+  grids.branchOutcome = new DataGrid('branchOutcomeTableHost', { title: 'نسبة الحل والتأكيد لكل فرع', columns: outcomeCols('الفرع', 'عدد الحالات'), summary: outcomeSum('الإجمالي'), pageSize: 10, searchPlaceholder: 'ابحث باسم الفرع…' });
+  grids.employeeOutcome = new DataGrid('employeeOutcomeTableHost', { title: 'نسبة الحل والتأكيد لكل موظفة', columns: outcomeCols('الموظفة', 'عدد الحالات'), summary: outcomeSum('الإجمالي'), pageSize: 10, searchPlaceholder: 'ابحث باسم الموظفة…' });
+  grids.problemTop = new DataGrid('problemTopTableHost', { title: 'أكبر أنواع المشاكل', columns: outcomeCols('نوع المشكلة', 'عدد الحالات', { pct: true, rest: true }), searchable: false, pageSize: 10 });
+  grids.sender = new DataGrid('senderTableHost', { title: 'الراسلون (Account) وأكثر حالاتهم', pageSize: 10, searchPlaceholder: 'ابحث باسم الراسل…', columns: [
+    { key: 'rank', type: 'rank', label: '#' },
+    { key: 'name', type: 'name', label: 'الراسل (Account)' },
+    { key: 'total', type: 'int', label: 'عدد الحالات' },
+    { key: 'pctOfTotal', type: 'pct', label: 'النسبة من الإجمالي' },
+    { key: 'topProblemType', type: 'text', label: 'أكثر نوع حالة', sort: r => r.topProblemType ? r.topProblemType.total : null, render: r => nameCount(r.topProblemType) },
+    { key: 'topProblemTypes', type: 'text', label: 'أكثر 3 أنواع', sortable: false, render: r => tagsHTML(r.topProblemTypes) },
+    { key: 'solveRatePct', type: 'rate', label: 'نسبة الحل' }
+  ] });
+  grids.driver = new DataGrid('driverTableHost', { title: 'المناديب وأكثر حالاتهم', pageSize: 10, searchPlaceholder: 'ابحث باسم المندوب…', columns: [
+    { key: 'rank', type: 'rank', label: '#' },
+    { key: 'name', type: 'name', label: 'المندوب' },
+    { key: 'total', type: 'int', label: 'عدد الحالات' },
+    { key: 'pctOfTotal', type: 'pct', label: 'النسبة من حالات المناديب' },
+    { key: 'topBranch', type: 'text', label: 'أكثر فرع', sort: r => r.topBranch ? r.topBranch.total : null, render: r => nameCount(r.topBranch) },
+    { key: 'topProblemType', type: 'text', label: 'أكثر نوع حالة', sort: r => r.topProblemType ? r.topProblemType.total : null, render: r => nameCount(r.topProblemType) },
+    { key: 'solveRatePct', type: 'rate', label: 'نسبة الحل' }
+  ] });
   grids.open = new DataGrid('openTableHost', {
     title: 'الحالات النشطة', pageSize: 25, pageSizes: [10, 25, 50, 100], searchPlaceholder: 'ابحث في الحالات…',
     searchKeys: ['waybillCode', 'account', 'driver', 'employee', 'branch'], maxHeight: 620,
@@ -1097,6 +1373,7 @@ function wireEvents() {
 
   $('branchCompareBtn').addEventListener('click', branchCompare);
   $('employeeCompareBtn').addEventListener('click', employeeCompare);
+  $('periodMode').addEventListener('change', () => { if (analyticsData) renderPeriods(analyticsData); });
   $('showStatsBtn').addEventListener('click', showReportStats);
   $('exportExcelBtn').addEventListener('click', exportReportCSV);
   $('printBtn').addEventListener('click', printReport);

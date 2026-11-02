@@ -60,6 +60,24 @@ const CONFIG = {
     OPEN: 'لم يتم الحل'
   },
 
+  // --- تصنيف الحالة الخام لنسب «الحل» و«التأكيد» (صفحات التحليل) ---
+  // يختلف عن STATUS_BUCKETS أعلاه (3 فئات للملخص): هنا كل قيمة خام تُحسب كما هي.
+  //   نسبة الحل    = تم الحل ÷ (تم الحل + لم يتم الحل)
+  //   نسبة التأكيد = تم التاكيد ÷ (تم التاكيد + لم يتم التاكيد)
+  // «تم التسليم» و«جارى الحل» لا يدخلان في أي من النسبتين (يظهران كأعداد فقط).
+  // (افتراض يحتاج تأكيد الإدارة — غيّر القوائم هنا فقط.)
+  STATUS_KINDS: {
+    RESOLVED: ['تم الحل'],
+    UNRESOLVED: ['لم يتم الحل'],
+    CONFIRMED: ['تم التاكيد', 'تم التأكيد'],
+    NOT_CONFIRMED: ['لم يتم التاكيد', 'لم يتم التأكيد'],
+    DELIVERED: ['تم التسليم'],
+    IN_PROGRESS: ['جارى الحل', 'جاري الحل']
+  },
+
+  // صفحات التحليل: طول الفترة اليومية بالساعات (يقسم 24)، وعدد أعلى الفروع لكل فترة، وعدد أعلى أنواع المشاكل.
+  ANALYTICS: { HOUR_BLOCK: 2, TOP_BRANCHES_PER_PERIOD: 3, TOP_PROBLEM_TYPES: 6 },
+
   DRIVER_EMPTY_DISPLAY: '—',
 
   // حد «يحتاج متابعة» لنسبة الحل (%) في الملخص التنفيذي وتقرير الإدارة — عرض فقط، لا يدخل في أي حساب.
@@ -79,4 +97,17 @@ function getStatusBucket_(rawStatus) {
     if (CONFIG.STATUS_BUCKETS[bucket].indexOf(s) !== -1) return bucket;
   }
   return 'UNKNOWN'; // status value not covered by the mapping above
+}
+
+/**
+ * يرجّع 'RESOLVED' | 'UNRESOLVED' | 'CONFIRMED' | 'NOT_CONFIRMED' | 'DELIVERED' | 'IN_PROGRESS' | 'OTHER'
+ * للحالة الخام (انظر CONFIG.STATUS_KINDS).
+ */
+function getStatusKind_(rawStatus) {
+  if (!rawStatus) return 'OTHER';
+  const s = String(rawStatus).trim();
+  for (const kind in CONFIG.STATUS_KINDS) {
+    if (CONFIG.STATUS_KINDS[kind].indexOf(s) !== -1) return kind;
+  }
+  return 'OTHER';
 }

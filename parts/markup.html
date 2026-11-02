@@ -40,6 +40,7 @@
       <button class="ar-nav-item" data-page="page-dashboard" type="button"><i class="fa-solid fa-chart-line" aria-hidden="true"></i><span class="lbl">لوحة المتابعة</span></button>
       <button class="ar-nav-item" data-page="page-branches" type="button"><i class="fa-solid fa-building" aria-hidden="true"></i><span class="lbl">أداء الفروع</span></button>
       <button class="ar-nav-item" data-page="page-employees" type="button"><i class="fa-solid fa-users" aria-hidden="true"></i><span class="lbl">أداء الموظفين</span></button>
+      <button class="ar-nav-item" data-page="page-insights" type="button"><i class="fa-solid fa-magnifying-glass-chart" aria-hidden="true"></i><span class="lbl">تحليل الحالات</span></button>
       <button class="ar-nav-item" data-page="page-open" type="button"><i class="fa-solid fa-folder-open" aria-hidden="true"></i><span class="lbl">الحالات المفتوحة</span><span class="ar-nav-badge" id="navOpenBadge" hidden>0</span></button>
       <button class="ar-nav-item" data-page="page-reports" type="button"><i class="fa-solid fa-file-lines" aria-hidden="true"></i><span class="lbl">التقارير</span></button>
     </nav>
@@ -111,6 +112,13 @@
         <div id="dataQualityHost"></div>
         <div class="ar-kpi-grid" id="homeKpis"></div>
 
+        <div class="ar-section-head"><span class="no">01</span><div><h3>دور الفريق</h3><p>حجم ما يتابعه الفريق وما أُنجز فيه، حسب الفلاتر المطبّقة.</p></div><span class="rule"></span></div>
+        <div class="ar-panel ar-stack"><div class="ar-panel-body"><div id="teamRoleText"></div></div></div>
+        <div class="ar-kpi-grid" id="teamRoleKpis"></div>
+        <div class="ar-note ar-stack" id="teamRoleNote"></div>
+
+        <div class="ar-section-head"><span class="no">02</span><div><h3>الصورة العامة</h3><p>ما يحتاج تدخل الإدارة وتوزيع الحالات.</p></div><span class="rule"></span></div>
+
         <div class="ar-grid-21">
           <div class="ar-panel">
             <div class="ar-panel-head"><div><h3>ما يحتاج تدخل الإدارة</h3><p>التصنيف حسب حالة الشحنة كما هي في Master Data، مع أكثر الفروع في كل فئة.</p></div></div>
@@ -172,6 +180,41 @@
           <div class="ar-panel-head"><div><h3>الاتجاه اليومي للمشاكل</h3><p>عدد المشاكل المسجلة في كل يوم — الوحدة: عدد الحالات. الأقدم يسارًا والأحدث يمينًا.</p></div></div>
           <div class="ar-panel-body"><div class="ar-chart" id="hostDaily"><canvas id="chDaily"></canvas></div></div>
         </div>
+
+        <div class="ar-section-head"><span class="no">01</span><div><h3>الأرقام الشهرية</h3><p>من أول شهر في البيانات حتى آخر شهر — عدد الحالات ونتائجها لكل شهر (تتأثر بالفلاتر).</p></div><span class="rule"></span></div>
+        <div class="ar-grid-2">
+          <div class="ar-panel">
+            <div class="ar-panel-head"><div><h3>عدد الحالات شهريًا</h3><p>الوحدة: عدد الحالات. الأقدم يسارًا والأحدث يمينًا.</p></div></div>
+            <div class="ar-panel-body"><div class="ar-chart" id="hostMonthly"><canvas id="chMonthly"></canvas></div></div>
+          </div>
+          <div class="ar-panel">
+            <div class="ar-panel-head"><div><h3>نسبة الحل ونسبة التأكيد شهريًا</h3><p>الوحدة: ٪. المقام: الحالات المحسومة فقط (انظر التعريف أسفل الجدول).</p></div></div>
+            <div class="ar-panel-body"><div class="ar-chart" id="hostMonthlyRates"><canvas id="chMonthlyRates"></canvas></div></div>
+          </div>
+        </div>
+        <div id="monthlyTableHost"></div>
+        <div id="monthlyUndatedHost"></div>
+        <div class="ar-note ar-stack"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>نسبة الحل = تم الحل ÷ (تم الحل + لم يتم الحل). نسبة التأكيد = تم التاكيد ÷ (تم التاكيد + لم يتم التاكيد). «تم التسليم» و«جارى الحل» يظهران كأعداد ولا يدخلان في النسبتين. الشهر بلا حسم يُعرض «—».</span></div>
+
+        <div class="ar-section-head"><span class="no">02</span><div><h3>فترات إرسال الحالات وفترة الضغط</h3><p>كم حالة في كل فترة، وأي فترة هي الأعلى ضغطًا، وأكثر الفروع إرسالًا في كل فترة.</p></div><span class="rule"></span></div>
+        <div class="ar-panel ar-stack">
+          <div class="ar-compare-bar">
+            <div class="ar-field"><label for="periodMode">تقسيم الفترات</label>
+              <select class="ar-select" id="periodMode">
+                <option value="weekday">حسب يوم الأسبوع</option>
+                <option value="monthPart">حسب أسبوع الشهر</option>
+                <option value="hour">حسب فترة اليوم (وقت التسجيل)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div id="periodPeakHost"></div>
+        <div class="ar-panel ar-stack">
+          <div class="ar-panel-head"><div><h3>عدد الحالات في كل فترة</h3><p>الفترة الأعلى (فترة الضغط) باللون الفيروزي — الوحدة: عدد الحالات.</p></div></div>
+          <div class="ar-panel-body"><div class="ar-chart" id="hostPeriod"><canvas id="chPeriod"></canvas></div></div>
+        </div>
+        <div id="periodTableHost"></div>
+        <div class="ar-note ar-stack" id="periodNote"></div>
       </section>
 
       <!-- ===================== 3) أداء الفروع ===================== -->
@@ -206,6 +249,14 @@
           <div class="ar-panel-body"><div class="ar-chart" id="hostBranchCompare"><canvas id="chBranchCompare"></canvas></div></div>
         </div>
         <div id="branchCompareTableHost"></div>
+
+        <div class="ar-section-head"><span class="no">03</span><div><h3>نسبة الحل ونسبة التأكيد لكل فرع</h3><p>تم الحل / لم يتم الحل وتم التأكيد / لم يتم التأكيد لكل فرع (تتأثر بالفلاتر).</p></div><span class="rule"></span></div>
+        <div id="branchOutcomeTableHost"></div>
+        <div class="ar-panel ar-stack">
+          <div class="ar-panel-head"><div><h3>مقارنة نسبة الحل ونسبة التأكيد بين الفروع</h3><p>أعلى 10 فروع حسب عدد الحالات — الوحدة: ٪.</p></div></div>
+          <div class="ar-panel-body"><div class="ar-chart" id="hostBranchOutcome"><canvas id="chBranchOutcome"></canvas></div><div class="ar-note" id="noteBranchOutcome" hidden></div></div>
+        </div>
+        <div class="ar-note ar-stack"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>نسبة الحل = تم الحل ÷ (تم الحل + لم يتم الحل). نسبة التأكيد = تم التاكيد ÷ (تم التاكيد + لم يتم التاكيد). «—» تعني عدم وجود حالات محسومة في هذا المعيار.</span></div>
       </section>
 
       <!-- ===================== 4) أداء الموظفين ===================== -->
@@ -238,6 +289,52 @@
           <div class="ar-panel-head"><div><h3>رسم بياني للمقارنة</h3><p>أعلى 6 موظفات حسب الشهر الثاني — الوحدة: عدد الحالات.</p></div></div>
           <div class="ar-panel-body"><div class="ar-chart" id="hostEmpCompare"><canvas id="chEmployeeCompare"></canvas></div></div>
         </div>
+
+        <div class="ar-section-head"><span class="no">03</span><div><h3>نسبة الحل ونسبة التأكيد لكل موظفة</h3><p>تم الحل / لم يتم الحل وتم التأكيد / لم يتم التأكيد لكل موظفة (تتأثر بالفلاتر).</p></div><span class="rule"></span></div>
+        <div id="employeeOutcomeTableHost"></div>
+        <div class="ar-panel ar-stack">
+          <div class="ar-panel-head"><div><h3>مقارنة نسبة الحل ونسبة التأكيد بين الموظفات</h3><p>أعلى 10 موظفات حسب عدد الحالات — الوحدة: ٪.</p></div></div>
+          <div class="ar-panel-body"><div class="ar-chart" id="hostEmployeeOutcome"><canvas id="chEmployeeOutcome"></canvas></div><div class="ar-note" id="noteEmployeeOutcome" hidden></div></div>
+        </div>
+        <div class="ar-note ar-stack"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>نسبة الحل = تم الحل ÷ (تم الحل + لم يتم الحل). نسبة التأكيد = تم التاكيد ÷ (تم التاكيد + لم يتم التاكيد). «—» تعني عدم وجود حالات محسومة في هذا المعيار.</span></div>
+
+        <div class="ar-section-head"><span class="no">04</span><div><h3>حجم الشغل لكل موظفة منذ أول شهر</h3><p>عدد الحالات لكل موظفة في كل شهر من أول شهر في البيانات (تتأثر بالفلاتر).</p></div><span class="rule"></span></div>
+        <div class="ar-panel ar-stack">
+          <div class="ar-panel-head"><div><h3>تطور عدد الحالات شهريًا</h3><p>أعلى 6 موظفات حسب الإجمالي — الوحدة: عدد الحالات.</p></div></div>
+          <div class="ar-panel-body"><div class="ar-chart" id="hostEmpMonthly"><canvas id="chEmpMonthly"></canvas></div></div>
+        </div>
+        <div id="employeeMonthlyTableHost"></div>
+        <div id="employeeMonthlyUndatedHost"></div>
+      </section>
+
+      <!-- ===================== تحليل الحالات: أنواع المشاكل / الراسلون / المناديب ===================== -->
+      <section class="page" id="page-insights">
+        <div class="ar-page-head"><div><h2>تحليل الحالات</h2><p>أكبر أنواع المشاكل، والراسلون (Account) الأكثر إرسالًا للحالات، والمناديب الأكثر حالات — حسب الفلاتر.</p></div></div>
+
+        <div class="ar-section-head"><span class="no">01</span><div><h3>أكبر 6 أنواع مشاكل</h3><p>كم حالة من كل نوع، وكم منها تم حله أو تأكيده.</p></div><span class="rule"></span></div>
+        <div class="ar-stat-pair" style="grid-template-columns:repeat(2,minmax(0,1fr))" id="problemTopStats"></div>
+        <div id="problemTopTableHost"></div>
+        <div class="ar-panel ar-stack">
+          <div class="ar-panel-head"><div><h3>الحالات وما تم حله وتأكيده لكل نوع</h3><p>الوحدة: عدد الحالات.</p></div></div>
+          <div class="ar-panel-body"><div class="ar-chart" id="hostProblemTop"><canvas id="chProblemTop"></canvas></div></div>
+        </div>
+        <div class="ar-note ar-stack"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>«تم حله» = حالات «تم الحل». «تم تأكيده» = حالات «تم التاكيد». الباقي من إجمالي النوع حالات بحالة أخرى (لم يتم الحل / لم يتم التاكيد / تم التسليم / جارى الحل).  عمود «حالات أخرى» = إجمالي النوع مطروحًا منه الحالات الأربع المعروضة، فيكتمل المجموع.</span></div>
+
+        <div class="ar-section-head"><span class="no">02</span><div><h3>الراسلون: الأكثر إرسالًا للحالات</h3><p>الراسل = عمود Account. مع أكثر نوع حالة لكل راسل.</p></div><span class="rule"></span></div>
+        <div class="ar-stat-pair" style="grid-template-columns:repeat(2,minmax(0,1fr))" id="senderTopStats"></div>
+        <div class="ar-panel ar-stack">
+          <div class="ar-panel-head"><div><h3>أعلى 10 راسلين حسب عدد الحالات</h3><p>الوحدة: عدد الحالات.</p></div></div>
+          <div class="ar-panel-body"><div class="ar-chart" id="hostSender"><canvas id="chSender"></canvas></div><div class="ar-note" id="noteSender" hidden></div></div>
+        </div>
+        <div id="senderTableHost"></div>
+
+        <div class="ar-section-head"><span class="no">03</span><div><h3>المناديب: الأكثر حالات</h3><p>المندوب الذي تُرسل عليه حالات أكثر، مع أكثر فرع وأكثر نوع مشكلة له.</p></div><span class="rule"></span></div>
+        <div id="driverNoteHost"></div>
+        <div class="ar-panel ar-stack">
+          <div class="ar-panel-head"><div><h3>أعلى 10 مناديب حسب عدد الحالات</h3><p>الوحدة: عدد الحالات.</p></div></div>
+          <div class="ar-panel-body"><div class="ar-chart" id="hostDriver"><canvas id="chDriver"></canvas></div><div class="ar-note" id="noteDriver" hidden></div></div>
+        </div>
+        <div id="driverTableHost"></div>
       </section>
 
       <!-- ===================== 5) الحالات المفتوحة ===================== -->

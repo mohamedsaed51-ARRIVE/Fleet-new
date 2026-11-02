@@ -81,6 +81,7 @@ function handleJsonAction_(params) {
       case 'reportsBundle': payload = getReportsBundle(filters); break;
       case 'dailyStatusBreakdown': payload = getDailyStatusBreakdown(filters); break;
       case 'managementReportPdf': payload = getManagementReportPdf(filters); break;
+      case 'analytics': payload = getAnalytics(filters); break;
       case 'fullAppData': payload = getFullAppData(filters); break;
       case 'refresh': payload = refreshAndGetFullAppData(filters); break;
       case 'monthComparison':
@@ -114,7 +115,8 @@ function getFullAppData(filters) {
     byAccount: getAccountBreakdown(filters),
     byProblemType: getProblemTypeBreakdown(filters),
     dailyTrend: getDailyTrend(filters),
-    openCases: getOpenCases(filters)
+    openCases: getOpenCases(filters),
+    analytics: getAnalytics(filters)
   };
 }
 
