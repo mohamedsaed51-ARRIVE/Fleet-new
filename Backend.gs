@@ -692,11 +692,15 @@ function getEmployeeMonthly_(records, months) {
 
 /* ---------------- فترات الإرسال ---------------- */
 const WEEKDAY_ORDER_ = [6, 0, 1, 2, 3, 4, 5];   // السبت أولًا
-const WEEKDAY_LABELS_ = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const WEEKDAY_LABELS_ = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];   // فهرس = Date.getDay()
+const WEEKDAY_DEFS_ = {};
+WEEKDAY_ORDER_.forEach((d, i) => { WEEKDAY_DEFS_[d] = { key: 'd' + d, label: WEEKDAY_LABELS_[d], order: i }; });
 const MONTH_PARTS_ = [
   { key: 'w1', label: 'الأسبوع الأول (1–7)', from: 1, to: 7 }, { key: 'w2', label: 'الأسبوع الثاني (8–14)', from: 8, to: 14 },
   { key: 'w3', label: 'الأسبوع الثالث (15–21)', from: 15, to: 21 }, { key: 'w4', label: 'الأسبوع الرابع (22–نهاية الشهر)', from: 22, to: 31 }
 ];
+
+const MONTH_PART_DEFS_ = MONTH_PARTS_.map((p, i) => ({ key: p.key, label: p.label, order: i }));
 
 function hourLabel_(h) {
   const suf = h < 12 ? 'ص' : 'م', x = h % 12 === 0 ? 12 : h % 12;
@@ -719,33 +723,30 @@ function buildPeriodRows_(records, periodOf, seed) {
   const max = rows.reduce((m, p) => Math.max(m, p.list.length), 0);
   return {
     missing: missing,
-    rows: rows.map(p => {
-      const st = outcomeStats_(p.list);
-      return {
-        key: p.key, label: p.label, total: p.list.length, pctOfTotal: pct_(p.list.length, used),
-        isPeak: max > 0 && p.list.length === max,
-        topBranches: topCounts_(p.list, 'branch', CONFIG.ANALYTICS.TOP_BRANCHES_PER_PERIOD),
-        solveRatePct: st.solveRatePct, confirmRatePct: st.confirmRatePct
-      };
-    })
+    rows: rows.map(p => ({
+      key: p.key, label: p.label, total: p.list.length, pctOfTotal: pct_(p.list.length, used),
+      isPeak: max > 0 && p.list.length === max,
+      topBranches: p.list.length ? topCounts_(p.list, 'branch', CONFIG.ANALYTICS.TOP_BRANCHES_PER_PERIOD) : []
+    }))
   };
 }
 
 function getPeriodAnalysis_(records) {
   const block = CONFIG.ANALYTICS.HOUR_BLOCK;
   const dated = records.filter(r => r.hasValidDate);
+  const hourDefs = {};   // تعريف كل فترة مرة واحدة بدل إنشاء كائن لكل سجل
   const hour = buildPeriodRows_(records, r => {
     if (r.entryHour === null || r.entryHour === undefined) return null;
     const start = Math.floor(r.entryHour / block) * block;
-    return { key: 'h' + start, label: hourLabel_(start) + ' – ' + hourLabel_((start + block) % 24), order: start };
+    return hourDefs[start] || (hourDefs[start] = { key: 'h' + start, label: hourLabel_(start) + ' – ' + hourLabel_((start + block) % 24), order: start });
   });
   const weekday = buildPeriodRows_(dated, r => {
-    const pos = WEEKDAY_ORDER_.indexOf(r.weekday);
-    return pos < 0 ? null : { key: 'd' + r.weekday, label: WEEKDAY_LABELS_[r.weekday], order: pos };
+    return WEEKDAY_DEFS_[r.weekday] || null;
   }, WEEKDAY_ORDER_.map((d, i) => ({ key: 'd' + d, label: WEEKDAY_LABELS_[d], order: i })));
   const monthPart = buildPeriodRows_(dated, r => {
-    const p = MONTH_PARTS_.filter(x => r.day >= x.from && r.day <= x.to)[0];
-    return p ? { key: p.key, label: p.label, order: MONTH_PARTS_.indexOf(p) } : null;
+    if (!(r.day >= 1 && r.day <= 31)) return null;
+    const i = r.day <= 7 ? 0 : r.day <= 14 ? 1 : r.day <= 21 ? 2 : 3;   // نفس حدود MONTH_PARTS_
+    return MONTH_PART_DEFS_[i];
   }, MONTH_PARTS_.map((p, i) => ({ key: p.key, label: p.label, order: i })));
   return { hour: hour, weekday: weekday, monthPart: monthPart, hourBlock: block };
 }
