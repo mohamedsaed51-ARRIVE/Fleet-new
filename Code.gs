@@ -81,6 +81,8 @@ function handleJsonAction_(params) {
       case 'reportsBundle': payload = getReportsBundle(filters); break;
       case 'dailyStatusBreakdown': payload = getDailyStatusBreakdown(filters); break;
       case 'managementReportPdf': payload = getManagementReportPdf(filters); break;
+      case 'coreData': payload = getCoreAppData(filters); break;
+      case 'refreshCore': payload = refreshAndGetCoreAppData(filters); break;
       case 'analytics': payload = getAnalytics(filters); break;
       case 'fullAppData': payload = getFullAppData(filters); break;
       case 'refresh': payload = refreshAndGetFullAppData(filters); break;
@@ -118,6 +120,27 @@ function getFullAppData(filters) {
     openCases: getOpenCases(filters),
     analytics: getAnalytics(filters)
   };
+}
+
+/**
+ * الأساسيات فقط (KPIs + التجميعات + الاتجاه اليومي + خيارات الفلاتر) — بدون الحالات المفتوحة والتحليلات.
+ * الواجهة تعرضها فورًا ثم تطلب openCases و analytics في الخلفية (تحميل أسرع بكثير على الشيتات الكبيرة).
+ */
+function getCoreAppData(filters) {
+  return {
+    filterOptions: getFilterOptions(),
+    kpis: getKPIs(filters),
+    byBranch: getBranchPerformance(filters),
+    byEmployee: getEmployeePerformance(filters),
+    byAccount: getAccountBreakdown(filters),
+    byProblemType: getProblemTypeBreakdown(filters),
+    dailyTrend: getDailyTrend(filters)
+  };
+}
+
+function refreshAndGetCoreAppData(filters) {
+  clearDataCache();
+  return getCoreAppData(filters);
 }
 
 /** Called by the Refresh button before re-fetching data. */

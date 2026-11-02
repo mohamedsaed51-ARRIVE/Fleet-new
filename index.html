@@ -1005,6 +1005,8 @@ const GAS_RUN_MAP = {
   reportsBundle:         filters => ['getReportsBundle', [filters]],
   dailyStatusBreakdown:  filters => ['getDailyStatusBreakdown', [filters]],
   managementReportPdf:   filters => ['getManagementReportPdf', [filters]],
+  coreData:              filters => ['getCoreAppData', [filters]],
+  refreshCore:           filters => ['refreshAndGetCoreAppData', [filters]],
   analytics:             filters => ['getAnalytics', [filters]],
   fullAppData:           filters => ['getFullAppData', [filters]],
   refresh:               filters => ['refreshAndGetFullAppData', [filters]],
@@ -1521,18 +1523,40 @@ function openSettings() { $('apiUrlInput').value = currentApiUrl; $('settingsMod
 function closeSettings() { $('settingsModal').classList.remove('is-open'); }
 
 /* ---------- Load ---------- */
+let loadToken = 0;
 async function loadAll() {
   setLoading(true);
+  const token = ++loadToken;
   try {
     const f = getCurrentFilters();
-    const data = await apiCall('fullAppData', f);   // الطلب يبدأ فورًا بالتوازي مع تحميل Chart.js
+    const data = await apiCall('coreData', f);   // الأساسيات أولًا (تظهر فورًا) — الطلب يبدأ بالتوازي مع تحميل Chart.js
+    if (token !== loadToken) return;
     state.applied = f;
     onFullAppData(data);
     setConnected(true);
+    loadDeferred(f, token);
   } catch (err) {
     console.error(err);
     setConnected(false, err.message);
-  } finally { setLoading(false); }
+  } finally { if (token === loadToken) setLoading(false); }
+}
+
+/** الحالات المفتوحة والتحليلات: تُطلب بعد الأساسيات (الكاش ساخن فلا تُعاد قراءة الشيت) وتُعرض فور وصولها. */
+function deferredPlaceholders() {
+  setHTML('teamRoleText', '<div class="ar-team-text muted">جارٍ تحميل التحليلات…</div>');
+  const b = $('navOpenBadge'); if (b) b.hidden = true;
+}
+async function loadDeferred(f, token) {
+  deferredPlaceholders();
+  setText('systemStatus', 'جارٍ تحميل باقي البيانات…');
+  const jobs = [
+    apiCall('analytics', f).then(a => { if (token === loadToken) { state.data.analytics = a; renderAnalytics(a); } }),
+    apiCall('openCases', f).then(c => { if (token === loadToken) { state.data.openCases = c; renderOpenCases(c); } })
+  ];
+  const res = await Promise.allSettled(jobs);
+  if (token !== loadToken) return;
+  const bad = res.find(r => r.status === 'rejected');
+  if (bad) { console.error(bad.reason); setConnected(false, bad.reason && bad.reason.message); } else setConnected(true);
 }
 
 function onFullAppData(data) {
@@ -1547,8 +1571,8 @@ function onFullAppData(data) {
   renderDashboardCharts(data);
   renderBranchPage(data.byBranch);
   renderEmployeePage(data.byEmployee, data.kpis);
-  renderAnalytics(data.analytics);
-  renderOpenCases(data.openCases);
+  if (data.analytics) renderAnalytics(data.analytics);
+  if (data.openCases) renderOpenCases(data.openCases);
   checkReportStale();
 }
 
@@ -2313,9 +2337,11 @@ function wireEvents() {
   $('refreshBtn').addEventListener('click', async function () {
     const btn = this; btn.disabled = true; btn.classList.add('is-busy'); setLoading(true);
     try {
-      const data = await apiCall('refresh', getCurrentFilters());
-      state.applied = getCurrentFilters();
+      const f = getCurrentFilters(), token = ++loadToken;
+      const data = await apiCall('refreshCore', f);
+      state.applied = f;
       onFullAppData(data); setConnected(true);
+      loadDeferred(f, token);
     } catch (err) { setConnected(false, err.message); }
     finally { btn.disabled = false; btn.classList.remove('is-busy'); setLoading(false); }
   });
